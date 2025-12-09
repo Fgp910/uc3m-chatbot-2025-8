@@ -1,5 +1,5 @@
-from langchain.prompts import ChatPromptTemplate
-from langchain.schema.runnable import RunnableLambda, RunnablePassthrough, RunnableWithMessageHistory
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import RunnableLambda, RunnablePassthrough, RunnableWithMessageHistory
 from operator import itemgetter
 from src.chat_history import get_session_history
 from src.llm_client import call_llm_api, call_llm_api_full
