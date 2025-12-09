@@ -1,7 +1,4 @@
-langchain
-langchain-community
-chromadb
-sentence-transformers
-python-dotenv
-requests
-pydantic
+langchain_community==0.4.1
+langchain_core==1.1.3
+python-dotenv==1.2.1
+Requests==2.32.5
