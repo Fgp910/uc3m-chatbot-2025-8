@@ -13,12 +13,6 @@ def call_llm_api(prompt_text: str):
     Returns:
         The LLM's generated answer as a string.
     """
-    # yield "This "
-    # yield "is "
-    # yield "a "
-    # yield "mock."
-    # return "Mock response"
-    # Based on LLM_API.txt content
     LLM_API_URL = "https://yiyuan.tsc.uc3m.es/api/generate"
     API_KEY = LLM_API_KEY
 
@@ -31,7 +25,7 @@ def call_llm_api(prompt_text: str):
     payload = {
         "model": "llama3.1:8b",
         "prompt": prompt_text,
-        "stream": True, # Set to True to get streaming response as shown in the example
+        "stream": True,
         "max_tokens": 500,
         "temperature": 0.7
     }
@@ -40,22 +34,16 @@ def call_llm_api(prompt_text: str):
         with requests.post(LLM_API_URL, headers=headers, json=payload, stream=True) as response:
             response.raise_for_status()  # Raise an exception for HTTP errors
 
-            # Process streaming response chunk by chunk
-            for chunk in response.iter_content(chunk_size=None):
-                try:
-                    # Decode the chunk to string and split into lines
-                    chunk_str = chunk.decode('utf-8')
-                    json_lines = chunk_str.strip().split('\n')
-
-                    for line in json_lines:
-                        if line:
-                            json_data = json.loads(line)
-                            if 'response' in json_data:
-                                token = json_data['response']
-                                # print(token, end='') # Print token in real-time
-                                yield token
-                except (json.JSONDecodeError, UnicodeDecodeError) as e:
-                    print(f"Warning: Could not decode or parse chunk: {chunk}. Error: {e}")
+            # Process streaming response line by line
+            for line in response.iter_lines(decode_unicode=True):
+                if line:
+                    try:
+                        json_data = json.loads(line)
+                        if 'response' in json_data:
+                            token = json_data['response']
+                            yield token
+                    except json.JSONDecodeError as e:
+                        print(f"Warning: Could not decode or parse line: {line}. Error: {e}")
 
     except requests.exceptions.RequestException as e:
         print(f"Error calling LLM API: {e}")
