@@ -4,3 +4,5 @@ python-dotenv
 requests
 chromadb
 sentence-transformers
+bert-score 
+torch
