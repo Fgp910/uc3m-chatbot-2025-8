@@ -1,42 +1,84 @@
-# Mock ChromaDB
+"""
+Vector Store - Loads ChromaDB from Person B pipeline.
+"""
+
+import os
+from pathlib import Path
+from dotenv import load_dotenv
 from langchain_community.vectorstores import Chroma
 from langchain_community.embeddings import SentenceTransformerEmbeddings
-from langchain_core.documents import Document
+
+load_dotenv()
+
+# Load from .env or use default relative path
+CHROMADB_PATH = os.getenv("CHROMADB_PATH", "./output/chromadb")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+COLLECTION_NAME = os.getenv("COLLECTION_NAME", "sgia_chunks")
 
 
-# 2. Create some dummy documents
-mock_documents = [
-    Document(page_content="The quick brown fox jumps over the lazy dog.", metadata={"source": "document1"}),
-    Document(page_content="Artificial intelligence is rapidly changing the world.", metadata={"source": "document2"}),
-    Document(page_content="Machine learning is a subset of AI that focuses on algorithms.", metadata={"source": "document3"}),
-    Document(page_content="Natural Language Processing (NLP) deals with human language.", metadata={"source": "document4"}),
-    Document(page_content="RAG systems combine retrieval and generation for better answers.", metadata={"source": "document5"}),
-    Document(page_content="ChromaDB is a popular open-source vector database.", metadata={"source": "document6"})
-]
-
-def get_vectorstore():
-    # 1. Define the embedding function (must be the same as used in retrieve_relevant_documents)
-    embedding_function = SentenceTransformerEmbeddings(model_name="all-MiniLM-L6-v2")
-
-    # 3. Define the directory for persistence
-    persist_directory = "./chroma_db"
-
-    # 4. Initialize and populate ChromaDB
-    print(f"Creating mock ChromaDB in '{persist_directory}'...")
-    vectorstore = Chroma.from_documents(
-        documents=mock_documents,
-        embedding=embedding_function,
-        persist_directory=persist_directory
+def get_vectorstore(chromadb_path: str = None):
+    path = chromadb_path or CHROMADB_PATH
+    
+    if not Path(path).exists():
+        raise FileNotFoundError(f"ChromaDB not found at: {path}")
+    
+    embedding_function = SentenceTransformerEmbeddings(model_name=EMBEDDING_MODEL)
+    vectorstore = Chroma(
+        persist_directory=path, 
+        embedding_function=embedding_function,
+        collection_name=COLLECTION_NAME
     )
-
-    # Persist the collection to disk
-    vectorstore.persist()
-    print("Mock ChromaDB created and populated successfully!")
-    print(f"Number of documents in ChromaDB: {vectorstore._collection.count()}")
-
+    
+    print(f"Loaded {vectorstore._collection.count()} chunks")
     return vectorstore
 
-def get_retriever(k_docs: int = 3):
-    vectorstore = get_vectorstore()
-    retriever = vectorstore.as_retriever(search_kwargs={"k": k_docs})
-    return retriever
+
+def get_retriever(k_docs: int = 10, filters: dict = None, chromadb_path: str = None):
+    vectorstore = get_vectorstore(chromadb_path)
+    search_kwargs = {"k": k_docs}
+    
+    if filters:
+        if len(filters) == 1:
+            key, val = list(filters.items())[0]
+            search_kwargs["filter"] = {key: {"$eq": val}}
+        else:
+            search_kwargs["filter"] = {"$and": [{k: {"$eq": v}} for k, v in filters.items()]}
+    
+    return vectorstore.as_retriever(search_kwargs=search_kwargs)
+
+
+def extract_filters_from_query(query: str) -> dict:
+    filters = {}
+    q = query.lower()
+    
+    if 'coast' in q or 'houston' in q:
+        filters['zone'] = 'COAST'
+    elif 'west' in q:
+        filters['zone'] = 'WEST'
+    elif 'north' in q:
+        filters['zone'] = 'NORTH'
+    elif 'south' in q:
+        filters['zone'] = 'SOUTH'
+    elif 'panhandle' in q:
+        filters['zone'] = 'PANHANDLE'
+    
+    if 'battery' in q or 'storage' in q or 'bess' in q:
+        filters['fuel_type'] = 'OTH'
+    elif 'solar' in q:
+        filters['fuel_type'] = 'SOL'
+    elif 'wind' in q:
+        filters['fuel_type'] = 'WIN'
+    elif 'gas' in q:
+        filters['fuel_type'] = 'GAS'
+    
+    if 'nextera' in q:
+        filters['parent_company'] = 'NEXTERA'
+    elif 'rwe' in q:
+        filters['parent_company'] = 'RWE'
+    
+    return filters
+
+
+def get_smart_retriever(query: str, k_docs: int = 15, chromadb_path: str = None):
+    filters = extract_filters_from_query(query)
+    return get_retriever(k_docs=k_docs, filters=filters if filters else None, chromadb_path=chromadb_path)
