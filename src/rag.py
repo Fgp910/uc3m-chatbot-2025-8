@@ -1,6 +1,4 @@
-"""
-RAG Pipeline - Production Grade
-
+"""RRAG Pipeline - Production Grade (with LCEL)
 Requirements:
 1. Source citations in every response
 2. "No information" when docs don't answer
@@ -8,34 +6,46 @@ Requirements:
 4. Auto-summarization extension
 """
 
+from typing import Dict, Generator, Any
+from operator import itemgetter
+
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import RunnableLambda
+from langchain_core.runnables import (
+    RunnablePassthrough,
+    RunnableLambda
+)
+from langchain_core.runnables.history import RunnableWithMessageHistory
+from langchain_core.messages import BaseMessage
+
+# Import existing dependencies
 from src.chat_history import get_session_history
 from src.llm_client import call_llm_api, call_llm_api_full
 
+# --- 1. Helper Functions ---
 
 def detect_language(text: str) -> str:
     text_lower = text.lower()
-    spanish_words = ['qué', 'cómo', 'cuál', 'dónde', 'por qué', 'el', 'la', 'los', 
-                     'proyecto', 'seguridad', 'requisitos', 'cuánto', 'para']
+    spanish_words = {'qué', 'que', 'cómo', 'como', 'cuál', 'cual', 'cuáles',
+            'cuales', 'dónde', 'donde', 'por qué', 'por que', 'el', 'la',
+            'los', 'proyecto', 'seguridad', 'requisitos', 'cuánto', 'para'}
     spanish_count = sum(1 for w in spanish_words if w in text_lower)
     return 'spanish' if spanish_count >= 2 else 'english'
 
 
-def format_sources(docs) -> tuple:
-    """Returns (formatted_context, source_list)"""
+def format_sources(docs) -> Dict[str, Any]:
+    """Returns dict with formatted context string and source metadata list."""
     if not docs:
-        return "", []
-    
+        return {"context": "", "sources": [], "has_docs": False}
+
     formatted_parts = []
     source_list = []
-    
+
     for i, doc in enumerate(docs, 1):
         meta = doc.metadata
         project = meta.get('project_name', 'Unknown')
         inr = meta.get('inr', 'N/A')
         section = meta.get('section', 'N/A')
-        
+
         formatted_parts.append(f"[Source {i}: {project} ({inr}) - {section}]\n{doc.page_content}\n")
         source_list.append({
             'ref': i,
@@ -45,8 +55,12 @@ def format_sources(docs) -> tuple:
             'zone': meta.get('zone'),
             'fuel_type': meta.get('fuel_type')
         })
-    
-    return "\n".join(formatted_parts), source_list
+
+    return {
+        "context": "\n".join(formatted_parts),
+        "sources": source_list,
+        "has_docs": True
+    }
 
 
 def format_citations(sources: list) -> str:
@@ -58,36 +72,8 @@ def format_citations(sources: list) -> str:
     return "\n".join(lines)
 
 
-# History-aware rephrasing
-rephrase_prompt = ChatPromptTemplate.from_messages([
-    ("system", "Reformulate the question to be standalone given the chat history. Return only the reformulated question."),
-    ("placeholder", "{chat_history}"),
-    ("human", "{question}"),
-])
+# --- 2. Prompts ---
 
-rephrase_chain = rephrase_prompt | (lambda x: x.to_string()) | call_llm_api_full
-
-def contextualized_question(input: dict):
-    if input.get("chat_history"):
-        return rephrase_chain.invoke(input)
-    return input["question"]
-
-
-# Query decomposition
-decomp_prompt = ChatPromptTemplate.from_messages([
-    ("system", "Decompose this ERCOT interconnection question into 2-3 simple sub-queries. Return one per line.\n\nQuestion: {question}"),
-    ("human", "{question}")
-])
-
-decomp_chain = (
-    decomp_prompt
-    | (lambda x: x.to_string())
-    | RunnableLambda(call_llm_api_full)
-    | (lambda x: [line.strip() for line in x.split('\n') if line.strip()])
-)
-
-
-# System prompts
 SYSTEM_EN = """Answer questions about ERCOT interconnection agreements using ONLY the provided context.
 
 RULES:
@@ -108,88 +94,137 @@ REGLAS:
 Contexto:
 {context}"""
 
+# Rephrasing prompt
+rephrase_prompt = ChatPromptTemplate.from_messages([
+    ("system", "Reformulate the question to be standalone given the chat history. Return only the reformulated question."),
+    ("placeholder", "{chat_history}"),
+    ("human", "{question}"),
+])
+
+# Query decomposition (Optional extension)
+decomp_prompt = ChatPromptTemplate.from_messages([
+    ("system", "Decompose this ERCOT interconnection question into 2-3 simple sub-queries. Return one per line.\n\nQuestion: {question}"),
+    ("human", "{question}")
+])
+
+
+# --- 3. Chain Logic ---
+
+def contextualize_question(input_dict: Dict) -> str:
+    """Uses blocking call to reformulate question if history exists."""
+    if not input_dict.get("chat_history"):
+        return input_dict["question"]
+
+    # We manually invoke the template + blocking LLM here to return a clean string
+    prompt_val = rephrase_prompt.invoke(input_dict)
+    return call_llm_api_full(prompt_val.to_string())
+
+
+def generate_rag_response(input_dict: Dict) -> Generator[str, None, None]:
+    """
+    Core generator that streams the LLM response, citations, and summary.
+    This serves as the final node in the LCEL chain.
+    """
+    question = input_dict["question"]  # This is the (potentially) reformulated question
+    retrieval = input_dict["retrieval"]
+    history = input_dict["chat_history"]
+    with_summary = input_dict["config_summary"]
+
+    # 1. Detect Language
+    lang = detect_language(question)
+
+    # 2. Handle No Documents
+    if not retrieval["has_docs"]:
+        msg = ("No tengo información sobre eso en los documentos disponibles."
+               if lang == 'spanish'
+               else "I don't have information about that in the available documents.")
+        yield msg
+        return
+
+    # 3. Construct Prompt
+    context = retrieval["context"]
+    system_template = SYSTEM_ES if lang == 'spanish' else SYSTEM_EN
+
+    prompt_template = ChatPromptTemplate.from_messages([
+        ("system", system_template),
+        ("placeholder", "{chat_history}"),
+        ("human", "{question}")
+    ])
+
+    prompt_str = prompt_template.invoke({
+        "context": context,
+        "chat_history": history,
+        "question": question
+    }).to_string()
+
+    # 4. Stream Main LLM Response
+    # call_llm_api is a generator
+    for token in call_llm_api(prompt_str):
+        yield token
+
+    # 5. Append Citations
+    citations = format_citations(retrieval["sources"])
+    if citations:
+        yield citations
+
+    # 6. Auto-summarization (Blocking call injected into stream)
+    if with_summary:
+        yield "\n\n--- Summary ---\n"
+        summary_prompt = f"Summarize key points from these ERCOT documents in 2-3 sentences:\n{context[:3000]}"
+        # Using blocking call here, then yielding result
+        summary = call_llm_api_full(summary_prompt)
+        yield summary
+
 
 def get_rag_chain(retriever, with_summary: bool = False):
     """
-    Build RAG chain with source citations and language detection.
-    
-    Args:
-        retriever: LangChain retriever
-        with_summary: Enable auto-summarization extension
+    Builds a declarative LCEL RAG pipeline.
+
+    Structure:
+    1. Contextualize Question (Blocking)
+    2. Retrieve & Format (Blocking)
+    3. Generate Response (Streaming)
+    4. Wrapped in Message History
     """
-    
-    class RAGChain:
-        def __init__(self, retriever, with_summary):
-            self.retriever = retriever
-            self.with_summary = with_summary
-        
-        def stream(self, inputs: dict, config: dict = None):
-            session_id = config.get('configurable', {}).get('session_id', 'default') if config else 'default'
-            history = get_session_history(session_id)
-            
-            # Contextualize question
-            question = inputs['question']
-            if history.messages:
-                question = contextualized_question({
-                    'question': question,
-                    'chat_history': history.messages
-                })
-            
-            # Detect language
-            lang = detect_language(question)
-            
-            # Retrieve documents (use invoke instead of deprecated get_relevant_documents)
-            docs = self.retriever.invoke(question)
-            context, sources = format_sources(docs)
-            
-            # Handle no documents
-            if not docs:
-                no_info = "No tengo información sobre eso en los documentos disponibles." if lang == 'spanish' else "I don't have information about that in the available documents."
-                history.add_user_message(inputs['question'])
-                history.add_ai_message(no_info)
-                yield no_info
-                return
-            
-            # Build prompt
-            system = SYSTEM_ES if lang == 'spanish' else SYSTEM_EN
-            prompt = ChatPromptTemplate.from_messages([
-                ("system", system),
-                ("placeholder", "{chat_history}"),
-                ("human", "{question}")
-            ])
-            
-            prompt_text = prompt.invoke({
-                'context': context,
-                'chat_history': history.messages,
-                'question': question
-            }).to_string()
-            
-            # Generate response
-            response_parts = []
-            for token in call_llm_api(prompt_text):
-                response_parts.append(token)
-                yield token
-            
-            # Add citations
-            citations = format_citations(sources)
-            yield citations
-            response_parts.append(citations)
-            
-            # Auto-summarization extension
-            if self.with_summary and docs:
-                yield "\n\n--- Summary ---\n"
-                summary_prompt = f"Summarize key points from these ERCOT documents in 2-3 sentences:\n{context[:3000]}"
-                summary = call_llm_api_full(summary_prompt)
-                yield summary
-                response_parts.append(f"\n\n--- Summary ---\n{summary}")
-            
-            # Update history
-            history.add_user_message(inputs['question'])
-            history.add_ai_message(''.join(response_parts))
-        
-        def invoke(self, inputs: dict, config: dict = None):
-            return ''.join(self.stream(inputs, config))
-    
+
+    # -- Step 1: Retrieval Branch --
+    # Fetches documents based on the reformulated question
+    retrieval_chain = (
+        itemgetter("question")
+        | retriever
+        | RunnableLambda(format_sources)
+    )
+
+    # -- Step 2: Main RAG Logic --
+    rag_chain_core = (
+        RunnablePassthrough.assign(
+            # Reformulate question based on history (if present)
+            question=RunnableLambda(contextualize_question)
+        )
+        | RunnablePassthrough.assign(
+            # Fetch docs using the (potentially reformulated) question
+            retrieval=retrieval_chain,
+            config_summary=lambda _: with_summary
+        )
+        | RunnableLambda(generate_rag_response)
+    )
+
+    # -- Step 3: Wrap with History Management --
+    # RunnableWithMessageHistory handles loading history and saving the final aggregated response
+    final_chain = RunnableWithMessageHistory(
+        rag_chain_core,
+        get_session_history,
+        input_messages_key="question",
+        history_messages_key="chat_history",
+    )
+
+    return final_chain
+
+
+def get_rag_chain_with_summary(retriever):
+    """Convenience wrapper for RAG with summary enabled."""
+  return ''.join(self.stream(inputs, config))
+
     return RAGChain(retriever, with_summary)
 
 
