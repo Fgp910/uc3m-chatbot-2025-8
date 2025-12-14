@@ -1,4 +1,4 @@
-from src.rag2 import get_rag_chain, get_rag_chain_with_summary
+from src.rag import get_rag_chain, get_rag_chain_with_summary
 from src.vector_store import get_retriever
 
 K_DOCS = 10
