@@ -1,4 +1,4 @@
-from src.rag import get_rag_chain, get_rag_chain_with_summary
+from src.rag2 import get_rag_chain, get_rag_chain_with_summary
 from src.vector_store import get_retriever
 
 K_DOCS = 10
@@ -13,8 +13,10 @@ chain = get_rag_chain(retriever)
 print("\n" + "="*60)
 print("TEST 1: Security requirements (English)")
 print("="*60)
+question = "What are the security deposit requirements for interconnection?"
+print("Question: " + question)
 for chunk in chain.stream(
-    {"question": "What are the security deposit requirements for interconnection?"},
+    {"question": question},
     config={"configurable": {"session_id": "test1"}}
 ):
     print(chunk, end="", flush=True)
@@ -23,8 +25,10 @@ for chunk in chain.stream(
 print("\n\n" + "="*60)
 print("TEST 2: Follow-up question")
 print("="*60)
+question = "What happens if the developer fails to meet those requirements?"
+print("Question: " + question)
 for chunk in chain.stream(
-    {"question": "What happens if the developer fails to meet those requirements?"},
+    {"question": question},
     config={"configurable": {"session_id": "test1"}}
 ):
     print(chunk, end="", flush=True)
@@ -33,8 +37,10 @@ for chunk in chain.stream(
 print("\n\n" + "="*60)
 print("TEST 3: Spanish query")
 print("="*60)
+question = "Cuales son los requisitos de seguridad para proyectos solares?"
+print("Question: " + question)
 for chunk in chain.stream(
-    {"question": "Cuales son los requisitos de seguridad para proyectos solares?"},
+    {"question": question},
     config={"configurable": {"session_id": "test2"}}
 ):
     print(chunk, end="", flush=True)
@@ -43,8 +49,10 @@ for chunk in chain.stream(
 print("\n\n" + "="*60)
 print("TEST 4: Out-of-scope question")
 print("="*60)
+question = "What is the capital of France?"
+print("Question: " + question)
 for chunk in chain.stream(
-    {"question": "What is the capital of France?"},
+    {"question": question},
     config={"configurable": {"session_id": "test3"}}
 ):
     print(chunk, end="", flush=True)
@@ -54,8 +62,10 @@ print("\n\n" + "="*60)
 print("TEST 5: With auto-summarization")
 print("="*60)
 chain_summary = get_rag_chain_with_summary(retriever)
+question = "What are the milestone requirements in Article 5?"
+print("Question: " + question)
 for chunk in chain_summary.stream(
-    {"question": "What are the milestone requirements in Article 5?"},
+    {"question": question},
     config={"configurable": {"session_id": "test4"}}
 ):
     print(chunk, end="", flush=True)
