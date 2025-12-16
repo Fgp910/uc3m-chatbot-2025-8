@@ -67,7 +67,7 @@ def format_citations(sources: list) -> str:
     if not sources:
         return ""
     lines = ["\n\nSources:"]
-    for s in sources[:5]:
+    for s in sources:
         lines.append(f"  [{s['ref']}] {s['project_name']} ({s['inr']}) - {s['section']}")
     return "\n".join(lines)
 
@@ -87,7 +87,7 @@ SYSTEM_EN = """Answer questions about ERCOT interconnection agreements using ONL
 
 RULES:
 - If context doesn't contain the answer, say: "I don't have information about that in the available documents."
-- Cite sources using [Source N] format
+- Cite sources using [Source N] format. Only reference sources from the Context section, not from the Related questions and answers one.
 - Be concise
 
 Related questions and answers:
@@ -115,7 +115,7 @@ rephrase_prompt = ChatPromptTemplate.from_messages([
 
 # Query decomposition (Optional extension)
 decomp_prompt = ChatPromptTemplate.from_messages([
-    ("system", "Decompose this ERCOT interconnection question into 0-3 simple sub-queries. Return one per line.\n\nUser question: {question}\n\nOutput sub-queries (0-3):"),
+    ("system", "Decompose this ERCOT interconnection question into 0-2 simple sub-queries. Return the questions ONLY, one per line.\n\nUser question: {question}\n\nOutput sub-queries (0-2):"),
     ("human", "{question}")
 ])
 
@@ -147,6 +147,9 @@ def decomp_and_answer(input_dict: Dict, retriever) -> str:
     qa_pairs = []
 
     for subq in subqueries:
+        # Guardrail for ill-formed subqueries
+        if len(subq) < 10 or '?' not in subq:
+            continue
         docs = retriever.invoke(subq)
         formatted = format_sources(docs)
 
