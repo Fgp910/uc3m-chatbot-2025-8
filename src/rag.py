@@ -67,9 +67,18 @@ def format_citations(sources: list) -> str:
     if not sources:
         return ""
     lines = ["\n\nSources:"]
-    for s in sources[:5]:
+    for s in sources:
         lines.append(f"  [{s['ref']}] {s['project_name']} ({s['inr']}) - {s['section']}")
     return "\n".join(lines)
+
+
+def parse_subqueries(llm_output: str) -> list[str]:
+    return [line.strip() for line in llm_output.split('\n') if line.strip()]
+
+
+def format_qa_pairs(qa_pairs: list) -> str:
+    formatted_pairs = [f"Question: {q}\nAnswer: {a}" for q, a in qa_pairs]
+    return '\n---\n'.join(formatted_pairs)
 
 
 # --- 2. Prompts ---
@@ -78,8 +87,11 @@ SYSTEM_EN = """Answer questions about ERCOT interconnection agreements using ONL
 
 RULES:
 - If context doesn't contain the answer, say: "I don't have information about that in the available documents."
-- Cite sources using [Source N] format
+- Cite sources using [Source N] format. Only reference sources from the Context section, not from the Related questions and answers one.
 - Be concise
+
+Related questions and answers:
+{qa_pairs}
 
 Context:
 {context}"""
@@ -103,7 +115,7 @@ rephrase_prompt = ChatPromptTemplate.from_messages([
 
 # Query decomposition (Optional extension)
 decomp_prompt = ChatPromptTemplate.from_messages([
-    ("system", "Decompose this ERCOT interconnection question into 2-3 simple sub-queries. Return one per line.\n\nQuestion: {question}"),
+    ("system", "Decompose this ERCOT interconnection question into 0-2 simple sub-queries. Return the questions ONLY, one per line.\n\nUser question: {question}\n\nOutput sub-queries (0-2):"),
     ("human", "{question}")
 ])
 
@@ -119,7 +131,51 @@ def contextualize_question(input_dict: Dict) -> str:
     prompt_val = rephrase_prompt.invoke(input_dict)
     return call_llm_api_full(prompt_val.to_string())
 
+# Query decomposition and sequential Q&A
+def decomp_and_answer(input_dict: Dict, retriever) -> str:
+    """
+    Decomposes the main question into subqueries, then answers them sequentially and adds the Q&A pair to the prompt.
+    Returns a formatter string of Q&A pairs.
+    """
+    question = input_dict["question"]
 
+    # Decompose
+    decomp_prompt_str = decomp_prompt.invoke({"question": question}).to_string()
+    subqueries = parse_subqueries(call_llm_api_full(decomp_prompt_str))
+
+    # Sequential answering
+    qa_pairs = []
+
+    for subq in subqueries:
+        # Guardrail for ill-formed subqueries
+        if len(subq) < 10 or '?' not in subq:
+            continue
+        docs = retriever.invoke(subq)
+        formatted = format_sources(docs)
+
+        previous_qa_str = format_qa_pairs(qa_pairs)
+
+        # Ask LLM
+        # system_template = SYSTEM_ES if lang == 'spanish' else SYSTEM_EN
+        system_template = SYSTEM_EN
+
+        prompt_template = ChatPromptTemplate.from_messages([
+            ("system", system_template),
+            ("human", "{question}")
+        ])
+
+        prompt_str = prompt_template.invoke({
+            "qa_pairs": previous_qa_str,
+            "context": formatted["context"],
+            "question": subq
+        }).to_string()
+
+        ans = call_llm_api_full(prompt_str)
+        qa_pairs.append((subq, ans))
+
+    return format_qa_pairs(qa_pairs)
+
+# Final chain
 def generate_rag_response(input_dict: Dict) -> Generator[str, None, None]:
     """
     Core generator that streams the LLM response, citations, and summary.
@@ -127,6 +183,7 @@ def generate_rag_response(input_dict: Dict) -> Generator[str, None, None]:
     """
     question = input_dict["question"]  # This is the (potentially) reformulated question
     retrieval = input_dict["retrieval"]
+    qa_pairs_str = input_dict["qa_pairs"]
     history = input_dict["chat_history"]
     with_summary = input_dict["config_summary"]
 
@@ -152,6 +209,7 @@ def generate_rag_response(input_dict: Dict) -> Generator[str, None, None]:
     ])
 
     prompt_str = prompt_template.invoke({
+        "qa_pairs": qa_pairs_str,
         "context": context,
         "chat_history": history,
         "question": question
@@ -182,9 +240,10 @@ def get_rag_chain(retriever, with_summary: bool = False):
 
     Structure:
     1. Contextualize Question (Blocking)
-    2. Retrieve & Format (Blocking)
-    3. Generate Response (Streaming)
-    4. Wrapped in Message History
+    2. Decompose and answer sub-queries (Blocking)
+    3. Retrieve & Format (Blocking)
+    4. Generate Response (Streaming)
+    5. Wrapped in Message History
     """
 
     # -- Step 1: Retrieval Branch --
@@ -195,21 +254,27 @@ def get_rag_chain(retriever, with_summary: bool = False):
         | RunnableLambda(format_sources)
     )
 
-    # -- Step 2: Main RAG Logic --
+    # -- Step 2: Decomposition Branch --
+    # Generates sub-queries, answers them, and returns Q&A-pairs string
+    decomp_chain = RunnableLambda(lambda x: decomp_and_answer(x, retriever))
+
+    # -- Step 3: Main RAG Logic --
     rag_chain_core = (
         RunnablePassthrough.assign(
             # Reformulate question based on history (if present)
             question=RunnableLambda(contextualize_question)
         )
         | RunnablePassthrough.assign(
-            # Fetch docs using the (potentially reformulated) question
+            # Fetch docs using the (potentially reformulated) question and its
+            # sub-queries and answers
             retrieval=retrieval_chain,
+            qa_pairs=decomp_chain,
             config_summary=lambda _: with_summary
         )
         | RunnableLambda(generate_rag_response)
     )
 
-    # -- Step 3: Wrap with History Management --
+    # -- Step 4: Wrap with History Management --
     # RunnableWithMessageHistory handles loading history and saving the final aggregated response
     final_chain = RunnableWithMessageHistory(
         rag_chain_core,
