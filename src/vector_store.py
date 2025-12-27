@@ -116,13 +116,18 @@ def similarity_search_with_boost(
     query: str, 
     k: int = 10, 
     boost_factor: float = 0.8,
-    k_initial: int = 50
+    k_initial: int = 50,
+    external_filters: dict = None
 ) -> list:
     """
     Performs a soft-filtered search. Instead of excluding docs, it boosts 
     those that match the query's metadata filters.
     """
     filters = extract_filters_from_query(query)
+    
+    # Merge external filters (e.g. from LLM extraction)
+    if external_filters:
+        filters.update(external_filters)
     
     # 1. Wide search
     results = vectorstore.similarity_search_with_score(query, k=k_initial)
@@ -176,15 +181,20 @@ class SmartRetriever:
     def __call__(self, query: str) -> list:
         """Allow direct calling."""
         return self._search(query)
+        
+    def search_with_filters(self, query: str, filters: dict = None) -> list:
+        """Explicitly search with external filters."""
+        return self._search(query, external_filters=filters)
     
-    def _search(self, query: str) -> list:
+    def _search(self, query: str, external_filters: dict = None) -> list:
         """Perform boosted similarity search."""
         boosted_results = similarity_search_with_boost(
             vectorstore=self.vectorstore,
             query=query,
             k=self.k,
             boost_factor=self.boost_factor,
-            k_initial=self.k_initial
+            k_initial=self.k_initial,
+            external_filters=external_filters
         )
         # Return only the documents (not scores)
         return [doc for doc, score, orig_score, match_count in boosted_results]
