@@ -15,6 +15,14 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 
 st.set_page_config(page_title="UC3M RAG Chatbot", page_icon="💬", layout="centered")
 
+import hashlib
+
+def file_sha1(path: str) -> str:
+    h = hashlib.sha1()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 @st.cache_resource
 def load_chain(k_docs: int, with_summary: bool):
@@ -72,45 +80,95 @@ with st.sidebar:
 
     st.divider()
 
+    UPLOAD_DIR = Path("uploaded_docs")
+    UPLOAD_DIR.mkdir(exist_ok=True)
+
+    # --- state ---
+    if "uploader_key" not in st.session_state:
+        st.session_state.uploader_key = 0
+
+    if "uploaded_docs" not in st.session_state:
+        # Docs that have been indexed (or at least accepted into the uploaded section)
+        # list[dict]: {"name": str, "size": int, "saved_path": str, "chunks": int}
+        st.session_state.uploaded_docs = []
+
     st.subheader("ADD DOCUMENTS")
-    uploaded_files = st.file_uploader(
+
+    selected_files = st.file_uploader(
         "Upload PDF/TXT/MD files",
         type=["pdf", "txt", "md"],
-        accept_multiple_files=True
+        accept_multiple_files=True,
+        key=f"uploader_{st.session_state.uploader_key}",
     )
 
-    # Optional metadata fields (useful for filtering/citations)
-    project_name = st.text_input("File name (optional)", value="")
-    # section = st.text_input("Section (optional)", value="")
+    st.markdown("**Uploaded documents**")
+    if not st.session_state.uploaded_docs:
+        st.caption("No uploaded documents yet.")
+    else:
+        for i, d in enumerate(st.session_state.uploaded_docs):
+            c1, c2 = st.columns([8, 2])
+            with c1:
+                st.write(f"📄 {d['name']}  *(chunks: {d.get('chunks','-')})*")
+            with c2:
+                if st.button("🗑️", key=f"del_indexed_{i}", help="Remove from ChromaDB"):
+                    try:
+                        add_files.delete_document_from_chroma(d["source_file_id"])
+                        st.toast("Deleted from index 🗑️", icon="🗑️")
 
-    index_clicked = st.button("Index documents", disabled=not uploaded_files)        
+                        st.session_state.uploaded_docs.pop(i)
 
-    if index_clicked:
+                        st.cache_resource.clear()
+                        st.rerun()
+
+                    except Exception as e:
+                        st.error(f"❌ Delete failed: {e}")
+
+    file_label = st.text_input("File label (optional)", value="")
+
+    index_clicked = st.button("Index documents", disabled=not selected_files)
+
+    if index_clicked and selected_files:
+        # 1) Save selected files to disk
         saved_paths = []
-        for uf in uploaded_files:
+        file_ids = []
+
+        for uf in selected_files:
             save_path = UPLOAD_DIR / uf.name
             with open(save_path, "wb") as f:
                 f.write(uf.getbuffer())
+
+            fid = file_sha1(str(save_path))
             saved_paths.append(str(save_path))
+            file_ids.append(fid)
 
         extra_metadata = {}
-        if project_name.strip():
-            extra_metadata["project_name"] = project_name.strip()
-        # if section.strip():
-        #     extra_metadata["section"] = section.strip()
+        if file_label.strip():
+            extra_metadata["project_name"] = file_label.strip()
 
         try:
-            print("Indexing documents...")
-            print(f"Saved paths: {saved_paths}")
-            n_chunks = add_files.upsert_documents_to_chroma(
+            # 2) Index them
+            stats = add_files.upsert_documents_to_chroma(
                 paths=saved_paths,
                 extra_metadata=extra_metadata if extra_metadata else None
             )
 
-            st.success(f"✅ Indexing completed. Chunks added: {n_chunks}")
+            st.success(f"✅ Indexing completed. Chunks added: {sum(stats.values())}")
 
-            # Clear cached retriever/chain so the new docs are used immediately
-            st.toast("File added to upload queue ✅", icon="✅")
+            # 3) Move to "Uploaded documents" list (after successful indexing)
+            # (we store per-file; chunks returned is total, so we set total or '-' per file)
+            for uf, path, fid in zip(selected_files, saved_paths, file_ids):
+                st.session_state.uploaded_docs.append({
+                    "name": uf.name,
+                    "size": uf.size,
+                    "saved_path": path,
+                    "source_file_id": fid,
+                    "chunks": stats.get(path, 0),  # optional: if you later compute per-file chunks, set it here
+                })
+
+            # 4) Reset uploader so selected files disappear from Drag&Drop area
+            st.session_state.uploader_key += 1
+
+            # 5) Reload retriever/chain so new docs are used
             st.cache_resource.clear()
             st.rerun()
 

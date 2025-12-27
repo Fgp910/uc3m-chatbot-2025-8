@@ -1,4 +1,3 @@
-# src/ingest.py
 import os
 import hashlib
 from typing import List, Optional, Dict
@@ -73,33 +72,62 @@ def upsert_documents_to_chroma(
     extra_metadata: Optional[Dict[str, str]] = None,
     chunk_size: int = 1000,
     chunk_overlap: int = 150,
-) -> int:
+) -> Dict[str, int]:
     """
-    Carga archivos, los trocea y los inserta en la Chroma persistida (incremental).
-    Devuelve el nº de chunks añadidos.
+    Index docs and return chunks count per file path.
     """
-    vectorstore = get_vectorstore()  # usa CHROMADB_PATH + embeddings del proyecto
+    vectorstore = get_vectorstore()
 
-    docs = load_documents(paths)
+    stats: Dict[str, int] = {}
+    all_chunks: List[Document] = []
+    all_ids: List[str] = []
 
-    if extra_metadata:
-        for d in docs:
-            d.metadata.update(extra_metadata)
+    for p in paths:
+        docs = load_documents([p])
+        if extra_metadata:
+            for d in docs:
+                d.metadata.update(extra_metadata)
 
-    chunks = split_documents(docs, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+        chunks = split_documents(docs, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+        stats[p] = len(chunks)
 
-    # IDs estables para evitar duplicados: file_id + page + chunk_index
-    ids = []
-    for i, c in enumerate(chunks):
-        fid = c.metadata.get("source_file_id", "nofile")
-        page = c.metadata.get("page", 0)
-        ids.append(f"{fid}::p{page}::c{i}")
+        for i, c in enumerate(chunks):
+            fid = c.metadata.get("source_file_id", "nofile")
+            page = c.metadata.get("page", 0)
+            all_ids.append(f"{fid}::p{page}::c{i}")
+            all_chunks.append(c)
 
-    vectorstore.add_documents(chunks, ids=ids)
-
+    vectorstore.add_documents(all_chunks, ids=all_ids)
     try:
         vectorstore.persist()
     except Exception:
         pass
 
-    return len(chunks)
+    return stats
+
+
+def delete_document_from_chroma(source_file_id: str) -> int:
+    """
+    Deletes all chunks belonging to a document (identified by source_file_id)
+    from the persistent ChromaDB.
+    Returns the number of deleted records if available (otherwise 0).
+    """
+    vectorstore = get_vectorstore()
+
+    # LangChain's Chroma wrapper doesn't always expose metadata deletes nicely,
+    # but the underlying Chroma collection does.
+    try:
+        # Preferred: delete by metadata filter
+        # This works if your Chroma version supports `where`
+        result = vectorstore._collection.delete(where={"source_file_id": source_file_id})
+        # result may be None depending on version
+        return 0 if result is None else 0
+    except Exception:
+        # Fallback: try deleting by id prefix if where isn't supported.
+        # This fallback is limited because we don't know how many chunks exist,
+        # so we can't enumerate ids reliably without re-chunking.
+        # Better to keep the "where" method above working.
+        raise RuntimeError(
+            "Could not delete by metadata filter. "
+            "Your Chroma version may not support where-delete via _collection."
+        )
