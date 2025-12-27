@@ -136,17 +136,28 @@ def run_chat():
     print("  /flash    - Switch to Flash mode (⚡)")
     print("  /thinking - Switch to Thinking mode (🧠)")
     print("  /verbose  - Toggle verbose output")
+    print("  /summary  - Toggle auto-summary of sources")
+    print("  /clear    - Clear chat history")
     print("  /exit     - Exit chat")
     print("="*60)
     
-    current_mode = RAGMode.FLASH
-    chain = get_flash_chain(retriever)
-    verbose = False
+    current_mode = RAGMode.THINKING
+    verbose = True
+    with_summary = True
     session_id = "chat_session"
+    
+    # Enable verbose by default
+    set_verbose(enabled=True)
+    
+    # Build initial chain (Thinking mode with summary)
+    chain = get_thinking_chain(retriever, with_summary=with_summary)
     
     while True:
         try:
-            user_input = input(f"\n[{current_mode.value}] You: ").strip()
+            mode_indicator = f"{current_mode.value}"
+            if with_summary:
+                mode_indicator += "+summary"
+            user_input = input(f"\n[{mode_indicator}] You: ").strip()
         except (KeyboardInterrupt, EOFError):
             print("\n\nGoodbye! 👋")
             break
@@ -156,16 +167,24 @@ def run_chat():
         
         # Command handling
         if user_input.lower() == "/exit":
+            # Clear history on exit
+            from src.rag_advanced import get_session_history
+            get_session_history(session_id).clear()
             print("\nGoodbye! 👋")
             break
+        elif user_input.lower() == "/clear":
+            from src.rag_advanced import get_session_history
+            get_session_history(session_id).clear()
+            print("🧹 Chat history cleared")
+            continue
         elif user_input.lower() == "/flash":
             current_mode = RAGMode.FLASH
-            chain = get_flash_chain(retriever)
+            chain = get_flash_chain(retriever, with_summary=with_summary)
             print("⚡ Switched to Flash mode")
             continue
         elif user_input.lower() == "/thinking":
             current_mode = RAGMode.THINKING
-            chain = get_thinking_chain(retriever)
+            chain = get_thinking_chain(retriever, with_summary=with_summary)
             print("🧠 Switched to Thinking mode")
             continue
         elif user_input.lower() == "/verbose":
@@ -173,15 +192,37 @@ def run_chat():
             set_verbose(enabled=verbose)
             print(f"Verbose mode: {'ON' if verbose else 'OFF'}")
             continue
+        elif user_input.lower() == "/summary":
+            with_summary = not with_summary
+            # Rebuild chain with new summary setting
+            if current_mode == RAGMode.FLASH:
+                chain = get_flash_chain(retriever, with_summary=with_summary)
+            else:
+                chain = get_thinking_chain(retriever, with_summary=with_summary)
+            print(f"📝 Auto-summary: {'ON' if with_summary else 'OFF'}")
+            continue
         
         # Get response
         print("\nAssistant: ", end="", flush=True)
         start = time.time()
+        response_chunks = []
         for chunk in chain.stream(
             {"question": user_input},
             config={"configurable": {"session_id": session_id}}
         ):
             print(chunk, end="", flush=True)
+            response_chunks.append(chunk)
+        
+        # Check if this was a rejection - if so, clear this exchange from history
+        full_response = "".join(response_chunks)
+        if "not related to ERCOT" in full_response or "no está relacionada" in full_response:
+            # Clear last exchange from session history to avoid polluting context
+            from src.rag_advanced import get_session_history
+            history = get_session_history(session_id)
+            if len(history.messages) >= 2:
+                # Remove last human + AI message pair
+                history.messages = history.messages[:-2]
+        
         print(f"\n\n⏱️ {time.time() - start:.2f}s")
 
 
