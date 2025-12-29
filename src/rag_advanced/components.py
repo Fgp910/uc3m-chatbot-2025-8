@@ -140,6 +140,7 @@ def generate_summary(context: str, lang: str = 'english', max_docs: int = 3) -> 
         source_match = re.search(r'\[Source \d+:\s*(.*?)\]', doc)
         source_name = source_match.group(1).strip() if source_match else f"Source {i}"
         result_lines.append(f"**{source_name}**")
+        result_lines.append("") # Force new paragraph
         result_lines.append(summary)
         result_lines.append("")  # Empty line between docs
     
@@ -392,16 +393,17 @@ def expand_query(question: str) -> List[str]:
     return queries
 
 
-def multi_retrieve(queries: List[str], retriever, filters: Dict[str, Any] = None) -> List:
+def multi_retrieve(queries: List[str], retriever, filters: Dict[str, Any] = None, k: int = None) -> List:
     """Retrieve documents for multiple queries in parallel and merge results.
     
     Args:
         queries: List of query strings
         retriever: The retriever instance
         filters: Optional metadata filters to apply/boost
+        k: Optional limit of documents per query
     """
     logger = get_logger()
-    logger.step(f"Retrieving documents for {len(queries)} queries in parallel...")
+    logger.step(f"Retrieving documents for {len(queries)} queries in parallel (k={k or 'auto'})...")
     
     all_docs = []
     seen_contents = set()
@@ -414,12 +416,41 @@ def multi_retrieve(queries: List[str], retriever, filters: Dict[str, Any] = None
         # or we rely on the retriever to handle it.
         # Given we are modifying this, we should assume the retriever is capable.
         
-        # If the retriever is the SmartRetriever wrapper, we can try to pass filters if we expose it.
-        # For now, let's assume standard invoke() doesn't support kwargs cleanly in LCEL chain.
-        # BUT, since we have the instance 'retriever', we can call methods directly if it's our class.
+        # Determine internal K for this specific query if overridden
+        # Standard retriever.invoke(q) doesn't accept k.
+        # We need to rely on the retriever instance if it has search methods.
+        
+        current_retriever = retriever
+        
+        # If k is provided, we might need to adjust the retriever's k temporarily?
+        # Or call similarity_search directly if it's exposed.
+        # Assuming LangChain retriever, often vectorstore.as_retriever()
+        
+        # Using vectorstore directly if accessible (common pattern in custom retrievers)
+        if hasattr(retriever, 'vectorstore'):
+             # Use the underlying vectorstore search if possible to control k
+             if filters:
+                 # Check if our custom SmartRetriever
+                 if hasattr(retriever, 'search_with_filters'):
+                      # SmartRetriever search_with_filters usually respects self.k, 
+                      # we may need to hint k if possible, but our implementation currently doesn't allow overriding k in search_with_filters easily
+                      # unless we changed it. Wait, I saw SmartRetriever definition earlier.
+                      # It uses self.k.
+                      pass 
+        
+        # For now, let's just retrieve and slice manually if the retriever returns more
+        
+        docs = []
         if hasattr(retriever, 'search_with_filters'):
-             return retriever.search_with_filters(query, filters)
-        return retriever.invoke(query)
+             docs = retriever.search_with_filters(query, filters)
+        else:
+             docs = retriever.invoke(query)
+             
+        # Enforce per-query k limit manually here incase retriever returned more
+        if k and len(docs) > k:
+            docs = docs[:k]
+            
+        return docs
     
     # Parallelize retrieval for all queries
     with ThreadPoolExecutor(max_workers=config.RETRIEVAL_WORKERS) as executor:
@@ -453,20 +484,43 @@ def extract_query_metadata(question: str) -> Dict[str, Any]:
     try:
         result = call_llm_api_full(prompt).strip()
         
-        # Robust JSON extraction using Regex
-        # Looks for the first occurrence of { ... } that looks like a JSON object
-        json_match = re.search(r'\{.*\}', result, re.DOTALL)
+        # Robust JSON extraction
+        # 1. Strip markdown code blocks if present
+        cleaned_result = result
+        if "```" in result:
+             # Try to find the content inside ```json ... ``` or just ``` ... ```
+             # We look for the first block
+             import re
+             code_block = re.search(r'```(?:json)?(.*?)```', result, re.DOTALL)
+             if code_block:
+                 cleaned_result = code_block.group(1).strip()
+        
+        # 2. Find the JSON object defined by { ... }
+        # This regex matches the first '{' and greedily captures until the last '}'
+        # We use dotall to capture newlines
+        json_match = re.search(r'\{.*\}', cleaned_result, re.DOTALL)
         
         if json_match:
             json_str = json_match.group(0)
             metadata = json.loads(json_str)
         else:
-            # Fallback: try loading the whole string if no braces found (unlikely but possible)
-            # or if it's just empty/malformed, log it.
-            if not result:
-                logger.info("Metadata extraction returned empty response")
-                return {}
-            metadata = json.loads(result)
+            # Fallback: try loading the cleaned string directly
+            try:
+                metadata = json.loads(cleaned_result)
+            except json.JSONDecodeError:
+                # RETRY STRATEGY: Common LLM error is using single quotes 'key': 'value'
+                # We try to naively replace single quotes with double quotes if safe
+                try:
+                    # Simple heuristic: replace ' with "
+                    # Note: this might break if content has apostrophes, but it's a last resort
+                    fixed_result = cleaned_result.replace("'", '"')
+                    metadata = json.loads(fixed_result)
+                except:
+                   if not result:
+                       logger.info("Metadata extraction returned empty response")
+                       return {}
+                   # Raise original error to show warning
+                   raise json.JSONDecodeError("No JSON found (retry failed)", result, 0)
 
         # Filter out empty or null values
         metadata = {k: v for k, v in metadata.items() if v}
@@ -485,7 +539,7 @@ def extract_query_metadata(question: str) -> Dict[str, Any]:
         return {}
 
 
-def generate_thinking_response(input_dict: Dict, retriever) -> Generator[str, None, None]:
+def generate_thinking_response(input_dict: Dict, retriever, k_total: int = None) -> Generator[str, None, None]:
     """Thinking mode: Structured response with validation.
     
     Flow: Classify → Extract Metadata → Expand queries → Retrieve → Generate → Validate
@@ -495,6 +549,9 @@ def generate_thinking_response(input_dict: Dict, retriever) -> Generator[str, No
     question = input_dict["question"]
     history = input_dict.get("chat_history", [])
     with_summary = input_dict.get("with_summary", False)
+    
+    # Use k_total if provided, else fallback to reasonable default or unlimited
+    max_docs = k_total if k_total else 15
     
     # Detect language
     lang = detect_language(question)
@@ -515,22 +572,14 @@ def generate_thinking_response(input_dict: Dict, retriever) -> Generator[str, No
     queries = expand_query(question)
     
     # 5. Multi-Query Retrieval (with metadata boosting)
-    # Note: We need to pass filters to the retriever if it supports it
-    # Since existing logic uses retriever.invoke(query), we rely on the retriever 
-    # to handle filters. If the retriever is 'SmartRetriever', we can pass filters
-    # via the query string or if we modify how we call it.
+    # Strategy: Split K total budget across N queries
+    # This prevents expanding context too much with duplicate/irrelevant info from many queries
+    num_queries = len(queries)
+    k_per_query = max(1, max_docs // num_queries) if max_docs else None
     
-    # However, existing multi_retrieve just calls retriever.invoke(query).
-    # To support explicit filters, we need to pass them down.
-    # The simplest way without changing everything is to inject filters into the query 
-    # context if the retriever is designed to parse them (which SmartRetriever is, 
-    # but verify_vector_store says it extracts from query).
+    logger.info(f"Retrieval strategy: {num_queries} queries, limit {k_per_query} docs per query (Total budget: {max_docs})")
     
-    # Better approach: We will modify multi_retrieve to accept filters and pass them.
-    # But first, let's just make sure we are not breaking current signature.
-    # I'll update multi_retrieve below to accept filters.
-    
-    all_docs = multi_retrieve(queries, retriever, filters=metadata_filters)
+    all_docs = multi_retrieve(queries, retriever, filters=metadata_filters, k=k_per_query)
     
     if not all_docs:
         msg = ("No tengo información sobre eso en los documentos disponibles."
@@ -538,6 +587,11 @@ def generate_thinking_response(input_dict: Dict, retriever) -> Generator[str, No
                else "I don't have information about that in the available documents.")
         yield msg
         return
+    
+    # Final safety clamp to k_total (in case disjoint sets exceeded total)
+    if max_docs and len(all_docs) > max_docs:
+        logger.info(f"Clamping final merged documents from {len(all_docs)} to {max_docs}")
+        all_docs = all_docs[:max_docs]
     
     # 6. Format sources for response
     retrieval = format_sources(all_docs)
