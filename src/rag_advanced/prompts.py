@@ -135,6 +135,7 @@ TOPICS THAT ARE ALWAYS IN-SCOPE:
 - Solar (SOL), wind (WIN), battery (BESS/OTH), gas projects
 - Texas energy developers, TSPs, project costs
 - INR numbers, security deposits, milestones
+- **Language changes (e.g. asking in Spanish after English)**: The domain is the content, NOT the language. If the question is about ERCOT in any language, it is RELEVANT.
 
 {chat_context}Question to evaluate: {question}
 
@@ -381,6 +382,8 @@ VALIDATION CRITERIA:
    - Are sources cited?
    - Is the response complete (not cut off)?
    - Does it avoid hallucinations or unsupported claims?
+   - Is the response specific to the question?
+   - Are irrelevant sources mentioned?
 
 Respond with a JSON object:
 {{

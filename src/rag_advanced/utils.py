@@ -100,17 +100,23 @@ class VerboseLogger:
 
 
 # Global logger instance (can be replaced)
-_verbose_logger = VerboseLogger(enabled=False)
+import contextvars
 
+# ContextVar to store logger per-thread/async context
+_logger_context = contextvars.ContextVar("verbose_logger", default=None)
 
 def set_verbose(enabled: bool, callback: Callable[[str], None] = None):
-    """Enable/disable verbose mode globally."""
-    global _verbose_logger
-    _verbose_logger = VerboseLogger(enabled=enabled, callback=callback)
-
+    """Enable/disable verbose mode for the current context."""
+    logger = VerboseLogger(enabled=enabled, callback=callback)
+    _logger_context.set(logger)
 
 def get_logger() -> VerboseLogger:
-    return _verbose_logger
+    """Get logger for current context, or default disabled one."""
+    logger = _logger_context.get()
+    if logger is None:
+        # Return a default disabled logger if not set
+        return VerboseLogger(enabled=False)
+    return logger
 
 
 # --- Helper Functions ---

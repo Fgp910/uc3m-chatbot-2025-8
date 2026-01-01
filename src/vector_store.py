@@ -142,6 +142,9 @@ def similarity_search_with_boost(
         for key, val in filters.items():
             if doc.metadata.get(key) == val:
                 match_count += 1
+                # SPECIAL CASE: Project Name match gets massive boost
+                if key == 'project_name':
+                     match_count += 10 # Artificially inflate match count to prioritize project matches above all else
         
         # Apply boost if there's a match (lower distance is better)
         if match_count > 0:
@@ -256,4 +259,35 @@ def get_hybrid_retriever(
         return get_smart_retriever(k_docs=k_docs, chromadb_path=chromadb_path, boost_factor=boost_factor)
     else:
         return get_retriever(k_docs=k_docs, chromadb_path=chromadb_path)
+
+
+def get_document_content(project_name: str, inr: str, section: str) -> str:
+    """
+    Retrieve full content for a specific document section using metadata.
+    """
+    vectorstore = get_vectorstore()
+    
+    # Use Chroma's internal get method for metadata filtering
+    # Note: langchain wrapper might expose .get but _collection is direct access to underlying chromadb
+    try:
+        where_clause = {
+            "$and": [
+                {"project_name": {"$eq": project_name}},
+                {"inr": {"$eq": inr}},
+                {"section": {"$eq": section}}
+            ]
+        }
+        
+        # We need to access the underlying collection to use 'where' efficiently without embeddings
+        results = vectorstore._collection.get(where=where_clause)
+        documents = results.get("documents", [])
+        
+        if not documents:
+            return f"No content found for {project_name} ({inr}) - {section}"
+            
+        # Concatenate all chunks found for this section (usually it's one or a few)
+        return "\n\n---\n\n".join(documents)
+        
+    except Exception as e:
+        return f"Error retrieving document: {str(e)}"
 
