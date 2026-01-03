@@ -40,8 +40,8 @@ from pathlib import Path
 
 def cmd_extract(args):
     """Run smart extraction pipeline."""
-    from src.extraction.metadata import MetadataRegistry
-    from src.extraction.smart_extractor import SmartExtractor
+    from .metadata import MetadataRegistry
+    from .smart_extractor import SmartExtractor
     
     # Get API key
     api_key = args.api_key or os.environ.get('ANTHROPIC_API_KEY')
@@ -305,8 +305,8 @@ def cmd_chunk(args):
     6. Validate output quality
     7. Output chunks.json ready for ChromaDB
     """
-    from src.chunking import ProductionTextExtractor, SGIAChunker
-    from src.chunking.chunker import validate_chunks_output, load_extraction_metadata
+    from .text_extractor import ProductionTextExtractor
+    from .chunker import SGIAChunker, validate_chunks_output, load_extraction_metadata
     
     # Get API key for Vision OCR
     api_key = args.api_key or os.environ.get('ANTHROPIC_API_KEY')
@@ -417,7 +417,7 @@ def cmd_index(args):
     2. Create embeddings using sentence-transformers
     3. Store in ChromaDB for semantic search
     """
-    from src.indexing import ChromaDBIndexer
+    from .chromadb_index import ChromaDBIndexer
     
     print("=" * 70)
     print("STEP 3: CHROMADB INDEXING (V6)")
