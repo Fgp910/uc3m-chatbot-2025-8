@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 
 import streamlit as st
+import re
+from collections import Counter
 
 from src.vector_store import get_retriever
 from src.rag import get_rag_chain, get_rag_chain_with_summary
@@ -14,7 +16,7 @@ K_DOCS = 10
 UPLOAD_DIR = Path("uploaded_docs")
 UPLOAD_DIR.mkdir(exist_ok=True)
 
-st.set_page_config(page_title="UC3M RAG Chatbot", page_icon="💬", layout="centered")
+st.set_page_config(page_title="ERCOT RAG Chatbot", page_icon="💬", layout="centered")
 
 import hashlib
 
@@ -25,18 +27,22 @@ def file_sha1(path: str) -> str:
             h.update(chunk)
     return h.hexdigest()
 
+from src.topics_bertopic import load_bertopic, top_topics_for_query, suggest_questions_from_topics
+@st.cache_resource
+def load_topic_model():
+    return load_bertopic("output/bertopic_model.pkl")
+
 @st.cache_resource
 def load_chain(k_docs: int, with_summary: bool):
     """Load retriever + chain only once per process."""
     retriever = get_retriever(k_docs=k_docs)
     chain = get_rag_chain_with_summary(retriever) if with_summary else get_rag_chain(retriever)
-    return chain
+    return chain, retriever
 
 
 st.title("💬 The ultimate RAG Chatbot")
 
 
-import re
 
 def format_sources_as_bullets(text: str) -> str:
     """
@@ -64,6 +70,36 @@ def format_sources_as_bullets(text: str) -> str:
 
     bullet_block = "Sources:\n" + "\n".join([f"- {p}" for p in parts])
     return head.rstrip() + "\n\n" + bullet_block
+
+
+def topics_from_retrieved_chunks(topic_model, retriever, query: str, top_n: int = 3):
+    # 1) retrieve chunks (same retriever as the RAG)
+    docs = retriever.invoke(query)
+    texts = [d.page_content for d in docs if getattr(d, "page_content", None)]
+
+    if not texts:
+        return []
+
+    # 2) infer topic for each retrieved chunk
+    ts, _ = topic_model.transform(texts)
+
+    # 3) pick most frequent topics (ignore outlier -1)
+    cnt = Counter([int(t) for t in ts if int(t) != -1])
+    if not cnt:
+        return []
+
+    top_topic_ids = [tid for tid, _ in cnt.most_common(top_n)]
+
+    # 4) build display objects with keywords
+    out = []
+    for tid in top_topic_ids:
+        kws = topic_model.get_topic(tid) or []
+        out.append({
+            "topic_id": tid,
+            "prob": cnt[tid] / max(1, len(texts)),  # frequency proxy
+            "keywords": kws[:10],
+        })
+    return out
 
 
 # -------------------------
@@ -188,7 +224,7 @@ with st.sidebar:
 # -------------------------
 # Load chain (cached)
 # -------------------------
-chain = load_chain(k_docs=k_docs, with_summary=with_summary)
+chain, retriever = load_chain(k_docs=k_docs, with_summary=with_summary)
 
 # Session id for RunnableWithMessageHistory (src/chat_history.py)
 if "session_id" not in st.session_state:
@@ -202,6 +238,18 @@ if "messages" not in st.session_state:
 for m in st.session_state.messages:
     with st.chat_message(m["role"]):
         st.markdown(m["content"])
+
+        if m["role"] == "assistant" and m.get("topics"):
+            with st.expander("Suggested topics & follow-up questions", expanded=False):
+                st.markdown("**Suggested topics**")
+                for t in m["topics"]:
+                    kws = ", ".join([w for (w, _) in t.get("keywords", [])[:6]])
+                    st.write(f"- Topic {t['topic_id']} (score={t['prob']:.2f}): {kws if kws else '(no keywords)'}")
+
+                st.markdown("**Suggested questions**")
+                for q in m.get("followups", []):
+                    st.write(f"- {q}")
+
 
 # Chat input
 user_text = st.chat_input("Type your question...")
@@ -229,5 +277,51 @@ if user_text:
             full = f"❌ Error generating response: {e}"
             placeholder.markdown(full)
 
-    # 3) Save assistant response in UI history
-    st.session_state.messages.append({"role": "assistant", "content": full})
+    # 4) Topic suggestions
+    topics = []
+    questions = []
+
+    try:
+        topic_model = load_topic_model()
+        topics = topics_from_retrieved_chunks(topic_model, retriever, user_text, top_n=3)
+        questions = suggest_questions_from_topics(topics, n=5)
+
+        # with st.expander("Suggested topics & follow-up questions", expanded=False):
+        #     st.markdown("**Suggested topics**")
+        #     for t in topics:
+        #         kws = ", ".join([w for (w, _) in t.get("keywords", [])[:6]])
+        #         st.write(f"- Topic {t['topic_id']} (score={t['prob']:.2f}): {kws if kws else '(no keywords)'}")
+
+        #     st.markdown("**Suggested questions**")
+        #     for q in questions:
+        #         st.write(f"- {q}")
+
+    except Exception as e:
+        # Optional: show a tiny debug message
+        st.caption(f"Topic suggestions unavailable: {e}")
+
+    with st.expander("Suggested topics & follow-up questions", expanded=False):
+        if topics:
+            st.markdown("**Suggested topics**")
+            for t in topics:
+                kws = ", ".join([w for (w, _) in t.get("keywords", [])[:6]])
+                st.write(f"- Topic {t['topic_id']} (score={t['prob']:.2f}): {kws if kws else '(no keywords)'}")
+        else:
+            st.caption("No topic suggestions available.")
+
+        if questions:
+            st.markdown("**Suggested questions**")
+            for q in questions:
+                st.write(f"- {q}")
+
+    # 5) Save assistant response in UI history
+    formatted_full = format_sources_as_bullets(full)
+    st.session_state.messages.append({
+        "role": "assistant",
+        "content": formatted_full,
+        "topics": topics,
+        "followups": questions,
+    })
+
+
+
