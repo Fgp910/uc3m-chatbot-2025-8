@@ -9,83 +9,11 @@ import re
 from src.vector_store import get_retriever, get_document_content
 from src.rag_advanced.chain import get_rag_chain
 from src.rag_advanced.utils import RAGMode, set_verbose
-from src import add_files
+from src.add_documents import add_files
 from pathlib import Path
+import hashlib
 
 K_DOCS = 10
-UPLOAD_DIR = Path("uploaded_docs")
-UPLOAD_DIR.mkdir(exist_ok=True)
-
-# --- DIALOGS ---
-@st.dialog("📄 Document Content", width="large")
-def show_document(project, inr, section):
-    # CSS for the document viewer
-    st.markdown("""
-        <style>
-        .doc-container {
-            background-color: #ffffff;
-            padding: 30px;
-            border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-            font-family: 'Georgia', serif;
-            color: #333;
-            line-height: 1.6;
-            border: 1px solid #e0e0e0;
-            margin-bottom: 20px;
-        }
-        .doc-header {
-            border-bottom: 2px solid #f0f0f0;
-            padding-bottom: 15px;
-            margin-bottom: 20px;
-        }
-        .doc-title {
-            font-size: 1.4em;
-            font-weight: bold;
-            color: #1a1a1a;
-            margin: 0;
-            font-family: 'Segoe UI', sans-serif;
-        }
-        .doc-meta {
-            color: #666;
-            font-size: 0.9em;
-            margin-top: 5px;
-            font-family: 'Segoe UI', sans-serif;
-        }
-        .doc-content {
-            font-size: 1.05em;
-            white-space: pre-wrap; /* Preserve formatting but wrap */
-        }
-        .highlight {
-            background-color: #fffbdd;
-            padding: 0 4px;
-            border-radius: 2px;
-        }
-        </style>
-    """, unsafe_allow_html=True)
-
-    with st.spinner("Retrieving document..."):
-        content = get_document_content(project, inr, section)
-    
-    # Clean up content slightly for display
-    # Replace the "---" separator logic from vector_store with a visual separator
-    clean_content = content.replace("\n\n---\n\n", "<hr class='doc-separator'>")
-    
-    html = f"""
-    <div class="doc-container">
-        <div class="doc-header">
-            <div class="doc-title">{project}</div>
-            <div class="doc-meta">
-                <span style="margin-right: 15px;"><strong>INR:</strong> {inr}</span>
-                <span><strong>Section:</strong> {section}</span>
-            </div>
-        </div>
-        <div class="doc-content">
-            {clean_content}
-        </div>
-    </div>
-    """
-    st.markdown(html, unsafe_allow_html=True)
-
 
 # --- DIALOGS ---
 @st.dialog("📄 Document Content", width="large")
@@ -160,7 +88,6 @@ def show_document(project, inr, section):
 
 st.set_page_config(page_title="UC3M RAG Chatbot", page_icon="💬", layout="centered")
 
-import hashlib
 
 def file_sha1(path: str) -> str:
     h = hashlib.sha1()
@@ -289,9 +216,6 @@ with st.sidebar:
 
     st.divider()
 
-    UPLOAD_DIR = Path("uploaded_docs")
-    UPLOAD_DIR.mkdir(exist_ok=True)
-
     # --- state ---
     if "uploader_key" not in st.session_state:
         st.session_state.uploader_key = 0
@@ -318,8 +242,10 @@ with st.sidebar:
         # 1) Save selected files to disk
         saved_paths = []
         file_ids = []
+        original_names = []
 
         for uf in selected_files:
+            original_names.append(uf.name)
             suffix = Path(uf.name).suffix.lower()  # .pdf, .txt, .md
             with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
                 tmp.write(uf.getbuffer())
@@ -337,6 +263,7 @@ with st.sidebar:
             # 2) Index them
             stats = add_files.upsert_documents_to_chroma(
                 paths=saved_paths,
+                original_names=original_names,
                 extra_metadata=extra_metadata if extra_metadata else None
             )
 
@@ -535,6 +462,9 @@ def parse_log_msg(msg: str) -> str:
         return msg
 
 if user_text:
+    topics = []
+    questions = []
+    
     # 1) Render user message
     st.session_state.messages.append({"role": "user", "content": user_text})
     with st.chat_message("user"):
@@ -581,9 +511,6 @@ if user_text:
             placeholder.empty()
 
             # 4) Topic suggestions
-            topics = []
-            questions = []
-
             try:
                 topic_model = load_topic_model()
                 topics = topics_from_retrieved_chunks(topic_model, retriever, user_text, top_n=3)
