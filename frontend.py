@@ -5,7 +5,6 @@ from pathlib import Path
 
 import streamlit as st
 import re
-from collections import Counter
 
 from src.vector_store import get_retriever, get_document_content
 from src.rag_advanced.chain import get_rag_chain
@@ -170,7 +169,7 @@ def file_sha1(path: str) -> str:
             h.update(chunk)
     return h.hexdigest()
 
-from src.topics_bertopic import load_bertopic, top_topics_for_query, suggest_questions_from_topics
+from src.topics_bertopic import load_bertopic, top_topics_for_query, suggest_questions_from_topics, topics_from_retrieved_chunks
 @st.cache_resource
 def load_topic_model():
     return load_bertopic("output/bertopic_model.pkl")
@@ -189,11 +188,32 @@ st.title("⚡ ERCOT Projects Chatbot")
 st.caption("Electric Reliability Council of Texas")
 
 
+def keep_only_last_sources(text: str) -> str:
+    """
+    If there are multiple 'Sources:' blocks, keep only the last one.
+    Everything after the last 'Sources:' stays, any earlier 'Sources:' blocks are removed.
+    """
+    last = text.rfind("Sources:")
+    if last == -1:
+        return text
+
+    # Keep answer before last sources + keep last sources block
+    prefix = text[:last].strip()
+    last_block = text[last:].strip()
+
+    # Remove any earlier 'Sources:' occurrences in the prefix by truncating them
+    # (i.e., answer should not contain any 'Sources:' at all)
+    first_in_prefix = prefix.find("Sources:")
+    if first_in_prefix != -1:
+        prefix = prefix[:first_in_prefix].strip()
+
+    return (prefix + "\n\n" + last_block).strip()
+
 
 def format_sources_as_bullets(text: str) -> str:
     """
     Turns:
-      Sources: [1] A [2] B [3] C
+      Sources: [1] A [2] B Sources: [3] C
     into:
       Sources:
       - [1] A
@@ -203,49 +223,28 @@ def format_sources_as_bullets(text: str) -> str:
     if "Sources:" not in text:
         return text
 
+    # Dividimos solo en la PRIMERA aparición
     head, tail = text.split("Sources:", 1)
-    tail = tail.strip()
+    
+    # --- CORRECCIÓN ---
+    # Limpiamos el 'tail' por si el LLM repitió la palabra "Sources:" o "Fuentes:"
+    # Esto evita que aparezca "Sources:" como un ítem más de la lista
+    tail = tail.replace("Sources:", "").replace("Fuentes:", "").strip()
 
     # Split at occurrences of [number]
     parts = re.split(r"(?=\[\d+\])", tail)
     parts = [p.strip() for p in parts if p.strip()]
 
     # If we couldn't split properly, just return as-is
-    if len(parts) <= 1:
+    if len(parts) == 0:
         return text
 
     bullet_block = "Sources:\n" + "\n".join([f"- {p}" for p in parts])
+    
+    # Unimos todo asegurando limpieza
     return head.rstrip() + "\n\n" + bullet_block
 
 
-def topics_from_retrieved_chunks(topic_model, retriever, query: str, top_n: int = 3):
-    # 1) retrieve chunks (same retriever as the RAG)
-    docs = retriever.invoke(query)
-    texts = [d.page_content for d in docs if getattr(d, "page_content", None)]
-
-    if not texts:
-        return []
-
-    # 2) infer topic for each retrieved chunk
-    ts, _ = topic_model.transform(texts)
-
-    # 3) pick most frequent topics (ignore outlier -1)
-    cnt = Counter([int(t) for t in ts if int(t) != -1])
-    if not cnt:
-        return []
-
-    top_topic_ids = [tid for tid, _ in cnt.most_common(top_n)]
-
-    # 4) build display objects with keywords
-    out = []
-    for tid in top_topic_ids:
-        kws = topic_model.get_topic(tid) or []
-        out.append({
-            "topic_id": tid,
-            "prob": cnt[tid] / max(1, len(texts)),  # frequency proxy
-            "keywords": kws[:10],
-        })
-    return out
 
 
 # -------------------------
@@ -408,7 +407,7 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
 
 # Helper to parse and render structured content
-def render_message_structurally(content: str, msg_index: int):
+def render_message_structurally(content: str, msg_index: int, topics: list = None, questions: list = None):
     """
     Parses the full assistant message to separate:
     1. Main Response
@@ -456,7 +455,22 @@ def render_message_structurally(content: str, msg_index: int):
                         show_document(project, inr, section)
                     else:
                         st.error(f"Could not parse source metadata: {clean_line}")
-            
+
+    if topics or questions:       
+        with st.expander("🧠 Suggested topics & follow-up questions", expanded=False):
+            if topics:
+                st.markdown("**🧩 Suggested topics**")
+                for t in topics:
+                    kws = ", ".join([w for (w, _) in t.get("keywords", [])[:6]])
+                    st.write(f"- Topic {t['topic_id']} (score={t['prob']:.2f}): {kws if kws else '(no keywords)'}")
+            else:
+                st.caption("No topic suggestions available.")
+
+            if questions:
+                st.markdown("**❓ Suggested questions**")
+                for q in questions:
+                    st.write(f"- {q}")
+
     # 3. Summary
     if summary_content:
         st.divider()
@@ -472,20 +486,9 @@ for i, m in enumerate(st.session_state.messages):
                      status_container.markdown(log_msg)
         
         if m["role"] == "assistant":
-            render_message_structurally(m["content"], i)
+            render_message_structurally(m["content"], i, m.get("topics"), m.get("followups", []))
         else:
             st.markdown(m["content"])
-
-        if m["role"] == "assistant" and m.get("topics"):
-            with st.expander("Suggested topics & follow-up questions", expanded=False):
-                st.markdown("**Suggested topics**")
-                for t in m["topics"]:
-                    kws = ", ".join([w for (w, _) in t.get("keywords", [])[:6]])
-                    st.write(f"- Topic {t['topic_id']} (score={t['prob']:.2f}): {kws if kws else '(no keywords)'}")
-
-                st.markdown("**Suggested questions**")
-                for q in m.get("followups", []):
-                    st.write(f"- {q}")
 
 
 # Chat input
@@ -576,7 +579,24 @@ if user_text:
 
             # Final render with structure (swapping raw stream for pretty UI)
             placeholder.empty()
-            render_message_structurally(full, len(st.session_state.messages))
+
+            # 4) Topic suggestions
+            topics = []
+            questions = []
+
+            try:
+                topic_model = load_topic_model()
+                topics = topics_from_retrieved_chunks(topic_model, retriever, user_text, top_n=3)
+                questions = suggest_questions_from_topics(topics, n=5)
+
+            except Exception as e:
+                # Optional: show a tiny debug message
+                st.caption(f"Topic suggestions unavailable: {e}")
+
+            formatted_full = format_sources_as_bullets(full)
+            formatted_full = keep_only_last_sources(formatted_full)
+
+            render_message_structurally(formatted_full, len(st.session_state.messages), topics, questions)
 
         except Exception as e:
             full = f"❌ Error generating response: {e}"
@@ -587,51 +607,13 @@ if user_text:
         # Reset verbose to avoid side effects
         set_verbose(False)
 
-    # 4) Topic suggestions
-    topics = []
-    questions = []
-
-    try:
-        topic_model = load_topic_model()
-        topics = topics_from_retrieved_chunks(topic_model, retriever, user_text, top_n=3)
-        questions = suggest_questions_from_topics(topics, n=5)
-
-        # with st.expander("Suggested topics & follow-up questions", expanded=False):
-        #     st.markdown("**Suggested topics**")
-        #     for t in topics:
-        #         kws = ", ".join([w for (w, _) in t.get("keywords", [])[:6]])
-        #         st.write(f"- Topic {t['topic_id']} (score={t['prob']:.2f}): {kws if kws else '(no keywords)'}")
-
-        #     st.markdown("**Suggested questions**")
-        #     for q in questions:
-        #         st.write(f"- {q}")
-
-    except Exception as e:
-        # Optional: show a tiny debug message
-        st.caption(f"Topic suggestions unavailable: {e}")
-
-    with st.expander("Suggested topics & follow-up questions", expanded=False):
-        if topics:
-            st.markdown("**Suggested topics**")
-            for t in topics:
-                kws = ", ".join([w for (w, _) in t.get("keywords", [])[:6]])
-                st.write(f"- Topic {t['topic_id']} (score={t['prob']:.2f}): {kws if kws else '(no keywords)'}")
-        else:
-            st.caption("No topic suggestions available.")
-
-        if questions:
-            st.markdown("**Suggested questions**")
-            for q in questions:
-                st.write(f"- {q}")
-
     # 5) Save assistant response in UI history
     formatted_full = format_sources_as_bullets(full)
+    formatted_full = keep_only_last_sources(formatted_full)
+
     st.session_state.messages.append({
         "role": "assistant",
         "content": formatted_full,
         "topics": topics,
         "followups": questions,
     })
-
-
-

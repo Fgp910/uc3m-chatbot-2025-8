@@ -4,5 +4,3 @@ venv/
 output/
 *.pyc
 chromadb*
-list_topics.py
-train_lda_topics.py

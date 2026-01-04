@@ -8,6 +8,7 @@ from sklearn.feature_extraction.text import CountVectorizer
 from umap import UMAP
 import hdbscan
 import os
+from collections import Counter
 
 from src.vector_store import get_vectorstore
 
@@ -194,4 +195,34 @@ def suggest_questions_from_topics(topics: List[Dict[str, Any]], n: int = 5) -> L
             seen.add(s)
         if len(out) >= n:
             break
+    return out
+
+
+def topics_from_retrieved_chunks(topic_model, retriever, query: str, top_n: int = 3):
+    # 1) retrieve chunks (same retriever as the RAG)
+    docs = retriever.invoke(query)
+    texts = [d.page_content for d in docs if getattr(d, "page_content", None)]
+
+    if not texts:
+        return []
+
+    # 2) infer topic for each retrieved chunk
+    ts, _ = topic_model.transform(texts)
+
+    # 3) pick most frequent topics (ignore outlier -1)
+    cnt = Counter([int(t) for t in ts if int(t) != -1])
+    if not cnt:
+        return []
+
+    top_topic_ids = [tid for tid, _ in cnt.most_common(top_n)]
+
+    # 4) build display objects with keywords
+    out = []
+    for tid in top_topic_ids:
+        kws = topic_model.get_topic(tid) or []
+        out.append({
+            "topic_id": tid,
+            "prob": cnt[tid] / max(1, len(texts)),  # frequency proxy
+            "keywords": kws[:10],
+        })
     return out
