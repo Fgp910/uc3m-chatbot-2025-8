@@ -4,8 +4,12 @@ import random
 from typing import List, Optional
 from langchain_core.documents import Document
 
-# Add the project root to sys.path to allow importing from src
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Determine project root (one level up from this script)
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(PROJECT_ROOT)
+
+# Change working directory to project root so ./chromadb paths work
+os.chdir(PROJECT_ROOT)
 
 from src.vector_store import get_vectorstore, extract_filters_from_query, similarity_search_with_boost
 

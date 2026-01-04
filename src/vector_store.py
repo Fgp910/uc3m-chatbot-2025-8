@@ -116,13 +116,18 @@ def similarity_search_with_boost(
     query: str, 
     k: int = 10, 
     boost_factor: float = 0.8,
-    k_initial: int = 50
+    k_initial: int = 50,
+    external_filters: dict = None
 ) -> list:
     """
     Performs a soft-filtered search. Instead of excluding docs, it boosts 
     those that match the query's metadata filters.
     """
     filters = extract_filters_from_query(query)
+    
+    # Merge external filters (e.g. from LLM extraction)
+    if external_filters:
+        filters.update(external_filters)
     
     # 1. Wide search
     results = vectorstore.similarity_search_with_score(query, k=k_initial)
@@ -137,6 +142,9 @@ def similarity_search_with_boost(
         for key, val in filters.items():
             if doc.metadata.get(key) == val:
                 match_count += 1
+                # SPECIAL CASE: Project Name match gets massive boost
+                if key == 'project_name':
+                     match_count += 10 # Artificially inflate match count to prioritize project matches above all else
         
         # Apply boost if there's a match (lower distance is better)
         if match_count > 0:
@@ -176,15 +184,20 @@ class SmartRetriever:
     def __call__(self, query: str) -> list:
         """Allow direct calling."""
         return self._search(query)
+        
+    def search_with_filters(self, query: str, filters: dict = None) -> list:
+        """Explicitly search with external filters."""
+        return self._search(query, external_filters=filters)
     
-    def _search(self, query: str) -> list:
+    def _search(self, query: str, external_filters: dict = None) -> list:
         """Perform boosted similarity search."""
         boosted_results = similarity_search_with_boost(
             vectorstore=self.vectorstore,
             query=query,
             k=self.k,
             boost_factor=self.boost_factor,
-            k_initial=self.k_initial
+            k_initial=self.k_initial,
+            external_filters=external_filters
         )
         # Return only the documents (not scores)
         return [doc for doc, score, orig_score, match_count in boosted_results]
@@ -246,4 +259,35 @@ def get_hybrid_retriever(
         return get_smart_retriever(k_docs=k_docs, chromadb_path=chromadb_path, boost_factor=boost_factor)
     else:
         return get_retriever(k_docs=k_docs, chromadb_path=chromadb_path)
+
+
+def get_document_content(project_name: str, inr: str, section: str) -> str:
+    """
+    Retrieve full content for a specific document section using metadata.
+    """
+    vectorstore = get_vectorstore()
+    
+    # Use Chroma's internal get method for metadata filtering
+    # Note: langchain wrapper might expose .get but _collection is direct access to underlying chromadb
+    try:
+        where_clause = {
+            "$and": [
+                {"project_name": {"$eq": project_name}},
+                {"inr": {"$eq": inr}},
+                {"section": {"$eq": section}}
+            ]
+        }
+        
+        # We need to access the underlying collection to use 'where' efficiently without embeddings
+        results = vectorstore._collection.get(where=where_clause)
+        documents = results.get("documents", [])
+        
+        if not documents:
+            return f"No content found for {project_name} ({inr}) - {section}"
+            
+        # Concatenate all chunks found for this section (usually it's one or a few)
+        return "\n\n---\n\n".join(documents)
+        
+    except Exception as e:
+        return f"Error retrieving document: {str(e)}"
 
