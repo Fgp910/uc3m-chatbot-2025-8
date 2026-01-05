@@ -15,9 +15,9 @@ import statistics
 import re
 from typing import List, Dict, Any
 
-from src.vector_store import get_retriever
-from src.rag_advanced.chain import get_rag_chain
-from src.rag_advanced.utils import RAGMode
+from src.vector_store import get_retriever, get_document_content
+from src.rag_advanced.chain import get_rag_chain, OOS_QUESTION_MSG
+from src.rag_advanced.utils import RAGMode, detect_language
 from src.llm_client import call_llm_api_full
 
 try:
@@ -72,7 +72,7 @@ class RAGQualityEvaluator:
 
     def compute_recall_at_k(
         self,
-        retrieved_docs: List[Any],
+        retrieved_doc_keys: List[str],
         relevant_doc_keys: List[str],
         k: int
     ) -> float:
@@ -80,7 +80,7 @@ class RAGQualityEvaluator:
         Compute Recall@K for retrieval quality.
 
         Args:
-            retrieved_docs: List of retrieved documents
+            retrieved_doc_keys: List of keys for retrieved documents
             relevant_doc_keys: List of keys for relevant documents
             k: Number of top documents to consider
 
@@ -91,8 +91,8 @@ class RAGQualityEvaluator:
             return 0.0
 
         # Get top-k retrieved documents
-        top_k_docs = retrieved_docs[:k]
-        retrieved_keys = {self._document_to_key(doc) for doc in top_k_docs}
+        top_k_docs = retrieved_doc_keys[:k]
+        retrieved_keys = set(top_k_docs)
         relevant_keys = set(relevant_doc_keys)
 
         # Recall = |retrieved ∩ relevant| / |relevant|
@@ -101,14 +101,14 @@ class RAGQualityEvaluator:
 
     def compute_mrr(
         self,
-        retrieved_docs: List[Any],
+        retrieved_keys: List[str],
         relevant_doc_keys: List[str]
     ) -> float:
         """
         Compute Mean Reciprocal Rank (MRR).
 
         Args:
-            retrieved_docs: List of retrieved documents (ordered by relevance)
+            retrieved_keys: List of keys for retrieved documents (ordered by relevance)
             relevant_doc_keys: List of keys for relevant documents
 
         Returns:
@@ -120,8 +120,7 @@ class RAGQualityEvaluator:
         relevant_keys = set(relevant_doc_keys)
 
         # Find rank of first relevant document (1-indexed)
-        for rank, doc in enumerate(retrieved_docs, start=1):
-            doc_key = self._document_to_key(doc)
+        for rank, doc_key in enumerate(retrieved_keys, start=1):
             if doc_key in relevant_keys:
                 return 1.0 / rank
 
@@ -308,6 +307,39 @@ Response:"""
             print(f"  Warning: BERTScore computation failed: {e}")
             return 0.0
 
+    def check_out_of_scope(self, response: str, is_in_scope: bool):
+        test = response in OOS_QUESTION_MSG.values()
+        return test == (not is_in_scope)
+
+    def _parse_rag_response(self, generated_answer: str):
+        sources_split = generated_answer.split("Sources:\n", 1)
+        main_response = sources_split[0].strip()
+        sources_content = sources_split[1].strip() if len(sources_split) > 1 else None
+
+        if not sources_content:
+            return main_response, []
+
+        lines = sources_content.strip().split('\n')
+        sources = {"keys": [], "coords": []}
+        for line in lines:
+            clean_line = line.strip()
+            if not clean_line:
+                continue
+            # Parse metadata: [1] Project (INR) - Section
+            # Regex: find optional [N], then Project, (INR), -, Section
+            match = re.search(r'(?:\[\d+\]\s*)?(.*?)\s*\((.*?)\)\s*-\s*(.*)', clean_line)
+            if not match:
+                continue
+
+            project = match.group(1).strip()
+            inr = match.group(2).strip()
+            section = match.group(3).strip()
+            sources["keys"].append(RAGQualityEvaluator.doc_to_key(project, inr, section))
+            sources["coords"].append({"project": project, "inr": inr, "section": section})
+
+        return main_response, sources
+
+
     def evaluate(
         self,
         dataset: List[Dict[str, Any]],
@@ -320,9 +352,10 @@ Response:"""
         [
             {
                 "question": str,
+                "lang": str,
+                "is_in_scope": bool,
                 "reference_answer": str,
                 "relevant_doc_keys": List[str],  # e.g., ["Project::INR::Section", ...]
-                "metadata": dict (optional)
             },
             ...
         ]
@@ -345,11 +378,13 @@ Response:"""
         print(f"Evaluating {len(dataset)} test cases...\n")
 
         metrics = {
+            "lang_accuracy": [],
+            "reject_accuracy": [],
             "recall_at_k": {k: [] for k in k_values},
             "mrr": [],
             "factscore": [],
             "bertscore": [],
-            "latency": []
+            "latency": [],
         }
 
         for i, case in enumerate(dataset, 1):
@@ -358,27 +393,6 @@ Response:"""
             relevant_doc_keys = case.get("relevant_doc_keys", [])
 
             print(f"[{i}/{len(dataset)}] {question[:60]}...")
-
-            # Get retrieval results
-            try:
-                docs = self.retriever.invoke(question)
-            except Exception as e:
-                print(f"  ERROR in retrieval: {e}")
-                docs = []
-
-            # Compute retrieval metrics (Recall@K, MRR)
-            if relevant_doc_keys:
-                for k in k_values:
-                    recall = self.compute_recall_at_k(docs, relevant_doc_keys, k)
-                    metrics["recall_at_k"][k].append(recall)
-
-                mrr = self.compute_mrr(docs, relevant_doc_keys)
-                metrics["mrr"].append(mrr)
-                print(f"  Recall@1: {metrics['recall_at_k'][1][-1]:.2f}, "
-                      f"Recall@5: {metrics['recall_at_k'][5][-1]:.2f}, "
-                      f"MRR: {mrr:.2f}")
-            else:
-                print("  No relevant doc keys provided, skipping retrieval metrics")
 
             # Get generated answer
             start_time = time.time()
@@ -400,10 +414,39 @@ Response:"""
             latency = time.time() - start_time
             metrics["latency"].append(latency)
 
+            # Split in main response and sources
+            main_response, docs = self._parse_rag_response(generated_answer)
+
+            # Check language and out-of-scope rejection
+            generated_lang = detect_language(main_response)
+            metrics["lang_accuracy"].append(generated_lang == case["lang"])
+
+            reject_hit = self.check_out_of_scope(main_response, case["is_in_scope"])
+            metrics["reject_accuracy"].append(reject_hit)
+
+            # Skip further tests if question is actually out-of-scope
+            if not case["is_in_scope"]:
+                continue
+
+            # Compute retrieval metrics (Recall@K, MRR)
+            if relevant_doc_keys:
+                for k in k_values:
+                    recall = self.compute_recall_at_k(docs["keys"], relevant_doc_keys, k)
+                    metrics["recall_at_k"][k].append(recall)
+
+                mrr = self.compute_mrr(docs["keys"], relevant_doc_keys)
+                metrics["mrr"].append(mrr)
+                print(f"  Recall@1: {metrics['recall_at_k'][1][-1]:.2f}, "
+                      f"Recall@5: {metrics['recall_at_k'][5][-1]:.2f}, "
+                      f"MRR: {mrr:.2f}")
+            else:
+                print("  No relevant doc keys provided, skipping retrieval metrics")
+
             # Compute generation metrics (FactScore, BERTScore)
             if reference_answer and generated_answer != "ERROR":
                 # Get context for FactScore
-                context = "\n".join([doc.page_content for doc in docs[:5]])
+                db_docs = [get_document_content(d["project"], d["inr"], d["section"]) for d in docs["coords"][:5]]
+                context = "\n".join(db_docs)
 
                 factscore = self.compute_factscore(
                     generated_answer,
@@ -445,6 +488,8 @@ Response:"""
                 k: avg(metrics["recall_at_k"][k])
                 for k in k_values
             },
+            "lang_accuracy": avg(metrics["lang_accuracy"]),
+            "reject_accuracy": avg(metrics["reject_accuracy"]),
             "mrr": avg(metrics["mrr"]),
             "factscore": avg(metrics["factscore"]),
             "bertscore": avg(metrics["bertscore"]),
@@ -461,6 +506,12 @@ Response:"""
         print("="*80)
         print(f"{'Metric':<25} {'Value':<15} {'Description'}")
         print("-"*80)
+
+
+        print(f"{'Language accuracy':<25} {results['lang_accuracy']:>6.2%}     "
+              f"Accuracy for language detection")
+        print(f"{'Reject accuracy':<25} {results['reject_accuracy']:>6.2%}     "
+              f"Accuracy for out-of-scope questions detection")
 
         # Retrieval metrics
         for k in k_values:
@@ -488,11 +539,15 @@ Response:"""
 SAMPLE_DATASET = [
     {
         "question": "What are the security deposit requirements for interconnection?",
+        "lang": "english",
+        "is_in_scope": True,
         "reference_answer": "The Generator shall provide security as specified in Exhibit A. The security amount depends on the project capacity and type.",
         "relevant_doc_keys": []  # Add actual document keys like ["ProjectName::INR::Article 11"]
     },
     {
         "question": "What are the milestone requirements in Article 5?",
+        "lang": "english",
+        "is_in_scope": True,
         "reference_answer": "Article 5 specifies milestones including commercial operation date and construction deadlines.",
         "relevant_doc_keys": []  # Add actual document keys
     },
@@ -513,6 +568,8 @@ def run_evaluation(
         dataset: Test dataset (uses SAMPLE_DATASET if None)
             Each entry should have:
             - "question": str
+            - "lang": str ("english" or "spanish")
+            - "is_in_scope": bool
             - "reference_answer": str (optional for retrieval-only metrics)
             - "relevant_doc_keys": List[str] (optional for generation-only metrics)
               Format: ["ProjectName::INR::Section", ...]
@@ -529,6 +586,8 @@ def run_evaluation(
         dataset = [
             {
                 "question": "What is the security deposit?",
+                "lang": "english",
+                "is_in_scope": True,
                 "reference_answer": "The security deposit is specified in Exhibit A.",
                 "relevant_doc_keys": [
                     RAGQualityEvaluator.doc_to_key("ProjectName", "25INR0494", "Article 11")
@@ -569,6 +628,8 @@ if __name__ == "__main__":
     print("  from test_rag_quality import RAGQualityEvaluator")
     print("  {")
     print("    'question': 'What is the security deposit?',")
+    print("    'lang': 'english',")
+    print("    'is_in_scope': True,")
     print("    'reference_answer': 'The security deposit is...',")
     print("    'relevant_doc_keys': [")
     print("      RAGQualityEvaluator.doc_to_key('ProjectName', '25INR0494', 'Article 11')")
@@ -577,19 +638,51 @@ if __name__ == "__main__":
 
     dataset = [
         {
+            "question": "What is the meaning of life?",
+            "lang": "english",
+            "is_in_scope": False,
+            "reference_answer": "",
+            "relevant_doc_keys": []
+        },
+        {
+            "question": "¿Cuál es el sentido de la vida?",
+            "lang": "spanish",
+            "is_in_scope": False,
+            "reference_answer": "",
+            "relevant_doc_keys": []
+        },
+        {
+            "question": "Are ERCOT agreements fun to make?",
+            "lang": "english",
+            "is_in_scope": False,
+            "reference_answer": "",
+            "relevant_doc_keys": []
+        },
+        {
+            "question": "¿Es divertido hacer acuerdos de ERCOT?",
+            "lang": "spanish",
+            "is_in_scope": False,
+            "reference_answer": "",
+            "relevant_doc_keys": []
+        },
+        {
             "question": "What are all the relevant emails in the FRIENDSWOOD ENERGY GENCO project agreement?",
+            "lang": "english",
+            "is_in_scope": True,
             "reference_answer": "For Friendswood Energy Genco LLC: Suriyun Sukduang (ssukduang@quantumug.com). For operational and administrative notices: NRG Cedar Bayou 5 LLC: realtimedesk@nrg.com. For billing purposes: CenterPoint Energy Houston Electric, LLC: AP.invoices@centerpointenergy.com, Friendswood Energy Genco LLC: mborski@quantumug.com",
             "relevant_doc_keys": [
                 RAGQualityEvaluator.doc_to_key('FRIENDSWOOD ENERGY GENCO', '24INR0456', 'schedule_of')
-            ]  # Add actual document keys like ["ProjectName::INR::Article 11"]
+            ]
         },
         {
             "question": "Are there any requirements that differ between solar and gas projects?",
+            "lang": "english",
+            "is_in_scope": True,
             "reference_answer": 'For solar projects, there is no mention of a required security amount in the provided documents. However, for gas projects, an exhibit ("E") outlines the requirements for a cash deposit as the Security.',
             "relevant_doc_keys": [
                 RAGQualityEvaluator.doc_to_key('Houston IV BESS', '24INR0584', 'exhibit_a'),
                 RAGQualityEvaluator.doc_to_key('Parliament Solar', '23INR0044', 'article_16')
-            ]  # Add actual document keys
+            ]
         },
     ]
 

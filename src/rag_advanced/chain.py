@@ -19,6 +19,14 @@ from .components import (
     generate_flash_response, generate_thinking_response
 )
 
+# Out-of-scope question messages
+OOS_QUESTION_MSG = {
+        "english": ("This question is not related to ERCOT interconnection agreements. "
+                    "I can only answer questions about energy projects, power grids, and ERCOT."),
+        "spanish": ("Esta pregunta no está relacionada con acuerdos de interconexión ERCOT. "
+                    "Solo puedo responder preguntas sobre proyectos de energía, redes eléctricas y ERCOT.")
+        }
+
 # --- Chain Builders ---
 
 def get_flash_chain(retriever, k_total: int = None, with_history: bool = True, with_summary: bool = False):
@@ -102,11 +110,7 @@ def get_thinking_chain(retriever, k_total: int = None, with_history: bool = True
             # Domain guardrail FIRST - before any LLM calls (with chat context)
             history = input_dict.get("chat_history", [])
             if not is_domain_relevant(question, history):
-                msg = ("Esta pregunta no está relacionada con acuerdos de interconexión ERCOT. "
-                       "Solo puedo responder preguntas sobre proyectos de energía, redes eléctricas y ERCOT."
-                       if lang == 'spanish'
-                       else "This question is not related to ERCOT interconnection agreements. "
-                       "I can only answer questions about energy projects, power grids, and ERCOT.")
+                msg = OOS_QUESTION_MSG[lang]
                 yield msg
                 return
             
