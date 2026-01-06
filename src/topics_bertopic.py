@@ -11,6 +11,8 @@ import os
 from collections import Counter
 
 from src.vector_store import get_vectorstore
+from src.rag_advanced.utils import detect_language
+from src.llm_client import call_llm_api_full
 import logging
 logger = logging.getLogger(__name__)
 
@@ -89,22 +91,44 @@ def load_bertopic(model_dir: str = "output/bertopic_model.pkl") -> BERTopic:
     return BERTopic.load(model_dir)
 
 
+def _translate_to_english(query: str) -> str:
+    """Translate Spanish query to English for topic matching."""
+    prompt = f"""Translate the following text to English. Only return the translation, nothing else.
+
+Text: {query}
+
+Translation:"""
+    try:
+        translation = call_llm_api_full(prompt).strip()
+        # Clean up common LLM artifacts
+        if translation.lower().startswith(("translation:", "here is", "here's")):
+            lines = translation.split('\n')
+            translation = lines[-1].strip() if len(lines) > 1 else translation
+        return translation
+    except Exception as e:
+        logger.warning(f"Translation failed: {e}, using original query")
+        return query
+
+
 def top_topics_for_query(
     topic_model: BERTopic,
     query: str,
     top_n: int = 3,
 ) -> List[Dict[str, Any]]:
     """
-    Returns top-N topics for a query:
+    Returns top-N topics for a query (translates to English if needed):
     [{"topic_id": int, "prob": float, "keywords": [("word", weight), ...]}]
     """
-    topics, probs = topic_model.transform([query])
+    # Translate to English if query is in Spanish (topics are in English)
+    lang = detect_language(query)
+    query_for_topics = _translate_to_english(query) if lang == 'spanish' else query
+    topics, probs = topic_model.transform([query_for_topics])
     t = int(topics[0])
     p = float(probs[0][t]) if probs is not None and t >= 0 and t < probs.shape[1] else 0.0
 
     # If model assigns -1 (outlier), we still can provide nearest topics by similarity:
     if t == -1:
-        return nearest_topics_by_embedding(topic_model, query, top_n=top_n)
+        return nearest_topics_by_embedding(topic_model, query_for_topics, top_n=top_n)
 
     out = [{
         "topic_id": t,
@@ -170,23 +194,44 @@ def nearest_topics_by_embedding(topic_model: BERTopic, query: str, top_n: int = 
     return out
 
 
-def suggest_questions_from_topics(topics: List[Dict[str, Any]], n: int = 5) -> List[str]:
+def suggest_questions_from_topics(topics: List[Dict[str, Any]], n: int = 5, lang: str = 'english') -> List[str]:
     """
-    Simple template-based suggestions (no LLM needed).
+    Template-based suggestions in the specified language.
+    
+    Args:
+        topics: List of topic dictionaries with keywords
+        n: Number of questions to return
+        lang: 'english' or 'spanish'
     """
+    # Question templates by language
+    templates = {
+        'english': [
+            "What does '{kw1}' mean in this context?",
+            "Can you summarize the main points about '{kw1}'?",
+            "What's the difference between '{kw1}' and '{kw2}'?",
+            "Where in the documents is '{kw1}' discussed?",
+        ],
+        'spanish': [
+            "¿Qué significa '{kw1}' en este contexto?",
+            "¿Puedes resumir los puntos principales sobre '{kw1}'?",
+            "¿Cuál es la diferencia entre '{kw1}' y '{kw2}'?",
+            "¿Dónde se discute '{kw1}' en los documentos?",
+        ]
+    }
+    
+    question_templates = templates.get(lang, templates['english'])
     suggestions = []
+    
     for t in topics:
         kws = [w for (w, _) in t.get("keywords", [])[:5]]
         if not kws:
             continue
         kw1 = kws[0]
         kw2 = kws[1] if len(kws) > 1 else kws[0]
-        suggestions.extend([
-            f"What does '{kw1}' mean in this context?",
-            f"Can you summarize the main points about '{kw1}'?",
-            f"What's the difference between '{kw1}' and '{kw2}'?",
-            f"Where in the documents is '{kw1}' discussed?",
-        ])
+        
+        for template in question_templates:
+            suggestions.append(template.format(kw1=kw1, kw2=kw2))
+    
     # unique + cut
     seen = set()
     out = []
@@ -200,7 +245,8 @@ def suggest_questions_from_topics(topics: List[Dict[str, Any]], n: int = 5) -> L
 
 
 def topics_from_retrieved_chunks(topic_model, retriever, query: str, top_n: int = 3):
-    # 1) retrieve chunks (same retriever as the RAG)
+    """Get topics from retrieved chunks (no translation needed - retriever works semantically)."""
+    # 1) retrieve chunks (retriever works with multilingual embeddings)
     docs = retriever.invoke(query)
     texts = [d.page_content for d in docs if getattr(d, "page_content", None)]
 

@@ -515,7 +515,7 @@ def extract_query_metadata(question: str) -> Dict[str, Any]:
                     # Note: this might break if content has apostrophes, but it's a last resort
                     fixed_result = cleaned_result.replace("'", '"')
                     metadata = json.loads(fixed_result)
-                except:
+                except Exception:
                    if not result:
                        logger.info("Metadata extraction returned empty response")
                        return {}

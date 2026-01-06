@@ -9,8 +9,9 @@ from src.add_documents.text_extractor import ProductionTextExtractor
 from src.add_documents.chunker import SGIAChunker
 from pathlib import Path
 
-def _file_sha1(path: str) -> str:
-    h = hashlib.sha1()
+def _file_hash(path: str) -> str:
+    """Compute SHA-256 hash of a file."""
+    h = hashlib.sha256()
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(1024 * 1024), b""):
             h.update(chunk)
@@ -110,34 +111,22 @@ def chunk_documents(path: str, original_name: str) -> List[Document]:
     chunker = SGIAChunker()
 
     pdf_path = Path(path)
-    print(f"Processing file: {pdf_path}")
     result = extractor.extract_document(pdf_path) 
-    text = result.full_text                         # extrae el texto real del DocumentResult
+    text = result.full_text
 
-    print("DEBUG result fields:", dir(result))
-    print("DEBUG full_text len:", len(getattr(result, "full_text", "") or ""))
-    print("DEBUG text len:", len(getattr(result, "text", "") or ""))
-    print("DEBUG pages:", len(getattr(result, "pages", []) or []))
-
-    print(f" - Extracted {len(text)} characters from {path}")
     chunks = chunker.chunk_document(text=text, filename=original_name)
-    print(f" - Created {len(chunks)} chunks from {path}")
 
-    # Convertir chunks (dicts) -> LangChain Documents
+    # Convert chunks (dataclass) -> LangChain Documents
     docs: List[Document] = []
-    file_id = _file_sha1(path)
+    file_id = _file_hash(path)
 
     project_fallback = Path(original_name).stem
 
     for ch in chunks:
-        # ch es un objeto Chunk (dataclass), no dict
         meta = getattr(ch, "metadata", {}) or {}
-
-        print("metadata chunk:", meta)
 
         meta.update({
             "project_name": meta.get("project_name") or project_fallback,
-
             "source_path": str(pdf_path),
             "source_file_id": file_id,
             "source_name": original_name,
@@ -145,8 +134,6 @@ def chunk_documents(path: str, original_name: str) -> List[Document]:
             "section": meta.get("section", "nosection"),
             "chunk_index": meta.get("chunk_index", None),
         })
-
-        print("metadata chunk 2:", meta)
 
         docs.append(Document(page_content=ch.text, metadata=meta))
 
