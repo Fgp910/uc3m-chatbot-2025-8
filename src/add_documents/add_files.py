@@ -127,11 +127,17 @@ def chunk_documents(path: str, original_name: str) -> List[Document]:
     docs: List[Document] = []
     file_id = _file_sha1(path)
 
+    project_fallback = Path(original_name).stem
+
     for ch in chunks:
         # ch es un objeto Chunk (dataclass), no dict
         meta = getattr(ch, "metadata", {}) or {}
 
+        print("metadata chunk:", meta)
+
         meta.update({
+            "project_name": meta.get("project_name") or project_fallback,
+
             "source_path": str(pdf_path),
             "source_file_id": file_id,
             "source_name": original_name,
@@ -139,6 +145,8 @@ def chunk_documents(path: str, original_name: str) -> List[Document]:
             "section": meta.get("section", "nosection"),
             "chunk_index": meta.get("chunk_index", None),
         })
+
+        print("metadata chunk 2:", meta)
 
         docs.append(Document(page_content=ch.text, metadata=meta))
 

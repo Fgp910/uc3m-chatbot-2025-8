@@ -11,7 +11,8 @@ import os
 from collections import Counter
 
 from src.vector_store import get_vectorstore
-
+import logging
+logger = logging.getLogger(__name__)
 
 def _load_corpus_from_chroma(max_docs: int | None = None) -> Tuple[List[str], List[Dict[str, Any]]]:
     """
@@ -225,4 +226,173 @@ def topics_from_retrieved_chunks(topic_model, retriever, query: str, top_n: int 
             "prob": cnt[tid] / max(1, len(texts)),  # frequency proxy
             "keywords": kws[:10],
         })
+    return out
+
+
+def merge_intent_and_grounded_topics(
+    query_topics: List[Dict[str, Any]],
+    chunks_topics: List[Dict[str, Any]],
+    top_n: int = 5,
+    w_chunks: float = 0.65,
+    w_query: float = 0.35,
+) -> List[Dict[str, Any]]:
+    """
+    Merge query-based topics (intent) with chunk-based topics (grounded evidence).
+
+    query_topics: output of top_topics_for_query(...)
+    chunks_topics: output of topics_from_retrieved_chunks(...)
+
+    Returns:
+        [
+          {
+            "topic_id": int,
+            "score": float,
+            "query_score": float,
+            "chunks_score": float,
+            "keywords": [...]
+          }
+        ]
+    """
+
+    logger.info("🔀 Merging query topics and chunk topics")
+    merged: Dict[int, Dict[str, Any]] = {}
+
+    # ----------------------------
+    # 1) Add grounded (chunks) topics first
+    # ----------------------------
+    for t in chunks_topics:
+        tid = int(t.get("topic_id", -1))
+        if tid == -1:
+            logger.debug("Skipping outlier topic -1 from chunks")
+            continue
+
+        merged[tid] = {
+            "topic_id": tid,
+            "chunks_score": float(t.get("prob", 0.0)),
+            "query_score": 0.0,
+            "keywords": t.get("keywords", []),
+        }
+
+    # ----------------------------
+    # 2) Add query (intent) topics
+    # ----------------------------
+    for t in query_topics:
+        tid = int(t.get("topic_id", -1))
+        if tid == -1:
+            logger.debug("Skipping outlier topic -1 from query")
+            continue
+
+        if tid not in merged:
+            merged[tid] = {
+                "topic_id": tid,
+                "chunks_score": 0.0,
+                "query_score": 0.0,
+                "keywords": t.get("keywords", []),
+            }
+
+        merged[tid]["query_score"] = float(t.get("prob", 0.0))
+
+        # Prefer keywords if chunks didn't provide them
+        if not merged[tid]["keywords"] and t.get("keywords"):
+            merged[tid]["keywords"] = t["keywords"]
+
+    if not merged:
+        logger.warning("⚠️ No topics to merge (both lists empty?)")
+        return []
+
+    # ----------------------------
+    # 3) Normalize query scores
+    # ----------------------------
+    query_vals = [v["query_score"] for v in merged.values()]
+    q_min, q_max = min(query_vals), max(query_vals)
+
+    for v in merged.values():
+        if q_max - q_min < 1e-9:
+            v["query_norm"] = 0.0
+        else:
+            v["query_norm"] = (v["query_score"] - q_min) / (q_max - q_min)
+
+    # ----------------------------
+    # 4) Final combined score
+    # ----------------------------
+    for v in merged.values():
+        v["score"] = (
+            w_chunks * v["chunks_score"] +
+            w_query * v["query_norm"]
+        )
+
+    # ----------------------------
+    # 5) Rank & return
+    # ----------------------------
+    ranked = sorted(merged.values(), key=lambda x: x["score"], reverse=True)
+
+    return dedupe_topics_by_main_keyword(ranked[:top_n])
+
+
+import re
+
+STOP_KEYWORDS = {
+    "var", "vars", "variable", "etc", "e.g", "ie", "i.e", "llc", "com"
+}
+
+def dedupe_topics_by_main_keyword(topics):
+    used = set()
+    out = []
+    for t in topics:
+        kws = clean_topic_keywords(t.get("keywords", []), max_kw=6)
+        if not kws:
+            continue
+        main = kws[0][0].strip().lower()  # keyword principal
+        if main in used:
+            continue
+        used.add(main)
+        t["keywords"] = kws
+        out.append(t)
+    return out
+
+def clean_topic_keywords(
+    keywords,
+    max_kw: int = 6,
+    drop_numbers: bool = True,
+    drop_short: bool = True,
+) :
+    """
+    keywords: list[tuple[str, float]] de BERTopic
+    returns: list[tuple[str, float]] limpio
+    """
+    seen = set()
+    out = []
+
+    for w, score in keywords:
+        if not w:
+            continue
+
+        w2 = w.strip().lower()
+
+        # drop pure numbers or number-like tokens
+        if drop_numbers and (w2.isdigit() or re.fullmatch(r"\d+(\.\d+)?", w2)):
+            continue
+
+        # drop tokens containing mostly digits (e.g., 713, 207, 713 207)
+        if drop_numbers and sum(ch.isdigit() for ch in w2) >= max(2, len(w2)//2):
+            continue
+
+        # drop very short junk
+        if drop_short and len(w2) <= 2:
+            continue
+
+        # drop stop keywords (custom)
+        if w2 in STOP_KEYWORDS:
+            continue
+
+        # dedupe within topic
+        if w2 in seen:
+            continue
+
+        seen.add(w2)
+        out.append((w, score))
+
+        if len(out) >= max_kw:
+            break
+
     return out
