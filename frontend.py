@@ -4,16 +4,16 @@ import os
 from pathlib import Path
 
 import streamlit as st
-
+import re
+import traceback
 from src.vector_store import get_retriever, get_document_content
 from src.rag_advanced.chain import get_rag_chain
 from src.rag_advanced.utils import RAGMode, set_verbose
-from src import add_files
+from src.add_documents import add_files
 from pathlib import Path
+import hashlib
 
 K_DOCS = 10
-UPLOAD_DIR = Path("uploaded_docs")
-UPLOAD_DIR.mkdir(exist_ok=True)
 
 # --- DIALOGS ---
 @st.dialog("📄 Document Content", width="large")
@@ -88,7 +88,6 @@ def show_document(project, inr, section):
 
 st.set_page_config(page_title="UC3M RAG Chatbot", page_icon="💬", layout="centered")
 
-import hashlib
 
 def file_sha1(path: str) -> str:
     h = hashlib.sha1()
@@ -97,6 +96,11 @@ def file_sha1(path: str) -> str:
             h.update(chunk)
     return h.hexdigest()
 
+from src.topics_bertopic import load_bertopic, merge_intent_and_grounded_topics, top_topics_for_query, suggest_questions_from_topics, topics_from_retrieved_chunks
+@st.cache_resource
+def load_topic_model():
+    return load_bertopic("output/bertopic_model.pkl")
+
 @st.cache_resource
 def load_chain(k_docs: int, mode: str, with_summary: bool):
     """Load retriever + chain only once per process."""
@@ -104,41 +108,33 @@ def load_chain(k_docs: int, mode: str, with_summary: bool):
     # Map string mode to Enum
     rag_mode = RAGMode(mode)
     chain = get_rag_chain(retriever, mode=rag_mode, k_total=k_docs, with_summary=with_summary)
-    return chain
+    return chain, retriever
 
 
 st.title("⚡ ERCOT Projects Chatbot")
 st.caption("Electric Reliability Council of Texas")
 
 
-import re
-
-def format_sources_as_bullets(text: str) -> str:
+def keep_only_last_sources(text: str) -> str:
     """
-    Turns:
-      Sources: [1] A [2] B [3] C
-    into:
-      Sources:
-      - [1] A
-      - [2] B
-      - [3] C
+    If there are multiple 'Sources:' blocks, keep only the last one.
+    Everything after the last 'Sources:' stays, any earlier 'Sources:' blocks are removed.
     """
-    if "Sources:" not in text:
+    last = text.rfind("Sources:")
+    if last == -1:
         return text
 
-    head, tail = text.split("Sources:", 1)
-    tail = tail.strip()
+    # Keep answer before last sources + keep last sources block
+    prefix = text[:last].strip()
+    last_block = text[last:].strip()
 
-    # Split at occurrences of [number]
-    parts = re.split(r"(?=\[\d+\])", tail)
-    parts = [p.strip() for p in parts if p.strip()]
+    # Remove any earlier 'Sources:' occurrences in the prefix by truncating them
+    # (i.e., answer should not contain any 'Sources:' at all)
+    first_in_prefix = prefix.find("Sources:")
+    if first_in_prefix != -1:
+        prefix = prefix[:first_in_prefix].strip()
 
-    # If we couldn't split properly, just return as-is
-    if len(parts) <= 1:
-        return text
-
-    bullet_block = "Sources:\n" + "\n".join([f"- {p}" for p in parts])
-    return head.rstrip() + "\n\n" + bullet_block
+    return (prefix + "\n\n" + last_block).strip()
 
 
 # -------------------------
@@ -183,9 +179,6 @@ with st.sidebar:
 
     st.divider()
 
-    UPLOAD_DIR = Path("uploaded_docs")
-    UPLOAD_DIR.mkdir(exist_ok=True)
-
     # --- state ---
     if "uploader_key" not in st.session_state:
         st.session_state.uploader_key = 0
@@ -212,8 +205,10 @@ with st.sidebar:
         # 1) Save selected files to disk
         saved_paths = []
         file_ids = []
+        original_names = []
 
         for uf in selected_files:
+            original_names.append(uf.name)
             suffix = Path(uf.name).suffix.lower()  # .pdf, .txt, .md
             with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
                 tmp.write(uf.getbuffer())
@@ -231,6 +226,7 @@ with st.sidebar:
             # 2) Index them
             stats = add_files.upsert_documents_to_chroma(
                 paths=saved_paths,
+                original_names=original_names,
                 extra_metadata=extra_metadata if extra_metadata else None
             )
 
@@ -290,7 +286,7 @@ with st.sidebar:
 # -------------------------
 # Load chain (cached)
 # -------------------------
-chain = load_chain(k_docs=k_docs, mode=selected_mode, with_summary=with_summary)
+chain, retriever = load_chain(k_docs=k_docs, mode=selected_mode, with_summary=with_summary)
 
 # Session id for RunnableWithMessageHistory (src/chat_history.py)
 if "session_id" not in st.session_state:
@@ -301,7 +297,7 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
 
 # Helper to parse and render structured content
-def render_message_structurally(content: str, msg_index: int):
+def render_message_structurally(content: str, msg_index: int, topics: list = None, questions: list = None):
     """
     Parses the full assistant message to separate:
     1. Main Response
@@ -349,7 +345,22 @@ def render_message_structurally(content: str, msg_index: int):
                         show_document(project, inr, section)
                     else:
                         st.error(f"Could not parse source metadata: {clean_line}")
-            
+
+    if topics or questions:       
+        with st.expander("🧠 Suggested topics & follow-up questions", expanded=False):
+            if topics:
+                st.markdown("**🧩 Suggested topics**")
+                for t in topics:
+                    kws = ", ".join([w for (w, _) in t.get("keywords", [])[:6]])
+                    st.write(f"- Topic {t['topic_id']} (score={t['score']:.2f}): {kws if kws else '(no keywords)'}")
+            else:
+                st.caption("No topic suggestions available.")
+
+            if questions:
+                st.markdown("**❓ Suggested questions**")
+                for q in questions:
+                    st.write(f"- {q}")
+
     # 3. Summary
     if summary_content:
         st.divider()
@@ -365,9 +376,10 @@ for i, m in enumerate(st.session_state.messages):
                      status_container.markdown(log_msg)
         
         if m["role"] == "assistant":
-            render_message_structurally(m["content"], i)
+            render_message_structurally(m["content"], i, m.get("topics"), m.get("followups", []))
         else:
             st.markdown(m["content"])
+
 
 # Chat input
 user_text = st.chat_input("Type your question...")
@@ -413,6 +425,9 @@ def parse_log_msg(msg: str) -> str:
         return msg
 
 if user_text:
+    topics = []
+    questions = []
+    
     # 1) Render user message
     st.session_state.messages.append({"role": "user", "content": user_text})
     with st.chat_message("user"):
@@ -449,7 +464,7 @@ if user_text:
                 config={"configurable": {"session_id": st.session_state.session_id}},
             ):
                 full += str(chunk)
-                placeholder.markdown(format_sources_as_bullets(full))
+                placeholder.markdown(full)
             
             # Close the status container processing state
             if status_container:
@@ -457,10 +472,29 @@ if user_text:
 
             # Final render with structure (swapping raw stream for pretty UI)
             placeholder.empty()
-            render_message_structurally(full, len(st.session_state.messages))
+
+            # 4) Topic suggestions
+            try:
+                topic_model = load_topic_model()
+                topics_chunks = topics_from_retrieved_chunks(topic_model, retriever, user_text, top_n=3)
+                topics_query = top_topics_for_query(topic_model, user_text, top_n=3)
+                topics = merge_intent_and_grounded_topics(topics_query, topics_chunks, top_n=3)
+                questions = suggest_questions_from_topics(topics, n=5)
+
+            except Exception as e:
+                # Optional: show a tiny debug message
+                st.caption(f"Topic suggestions unavailable: {e}")
+
+            formatted_full = keep_only_last_sources(full)
+
+            render_message_structurally(formatted_full, len(st.session_state.messages), topics, questions)
 
         except Exception as e:
-            full = f"❌ Error generating response: {e}"
+            tb = traceback.format_exc()
+            st.error("❌ Error generating response")
+            st.code(tb)  # muestra stacktrace completo en la UI
+            # opcional: también lo pones en el chat
+            full = f"❌ Error generating response: {repr(e)}"
             placeholder.markdown(full)
             if status_container:
                 status_container.update(label="Internal Processing Failed", state="error")
@@ -468,9 +502,12 @@ if user_text:
         # Reset verbose to avoid side effects
         set_verbose(False)
 
-    # 3) Save assistant response in UI history
+    # 5) Save assistant response in UI history
+    formatted_full = keep_only_last_sources(full)    
+
     st.session_state.messages.append({
-        "role": "assistant", 
-        "content": full,
-        "logs": current_logs
+        "role": "assistant",
+        "content": formatted_full,
+        "topics": topics,
+        "followups": questions,
     })
