@@ -1,17 +1,17 @@
-import tempfile
-import uuid
+import hashlib
 import os
+import re
+import tempfile
+import traceback
+import uuid
 from pathlib import Path
 
 import streamlit as st
-import re
-import traceback
-from src.vector_store import get_retriever, get_document_content
-from src.rag_advanced.chain import get_rag_chain
-from src.rag_advanced.utils import RAGMode, set_verbose
+
 from src.add_documents import add_files
-from pathlib import Path
-import hashlib
+from src.rag_advanced.chain import get_rag_chain
+from src.rag_advanced.utils import RAGMode, set_verbose, detect_language
+from src.vector_store import get_document_content, get_retriever
 
 K_DOCS = 10
 
@@ -89,8 +89,9 @@ def show_document(project, inr, section):
 st.set_page_config(page_title="UC3M RAG Chatbot", page_icon="💬", layout="centered")
 
 
-def file_sha1(path: str) -> str:
-    h = hashlib.sha1()
+def file_hash(path: str) -> str:
+    """Compute SHA-256 hash of a file."""
+    h = hashlib.sha256()
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(1024 * 1024), b""):
             h.update(chunk)
@@ -215,7 +216,7 @@ with st.sidebar:
                 tmp_path = tmp.name
 
             saved_paths.append(tmp_path)
-            fid = file_sha1(tmp_path)
+            fid = file_hash(tmp_path)
             file_ids.append(fid)
 
         extra_metadata = {}
@@ -444,11 +445,10 @@ if user_text:
             status_container = st.status("Internal Processing", expanded=True)
             
             def logger_callback(msg):
+                """Thread-safe logger callback - only stores messages, doesn't write to Streamlit"""
                 formatted_msg = parse_log_msg(msg)
-                if formatted_msg and status_container:
-                    # Write immediately to UI
-                    status_container.markdown(formatted_msg)
-                    # Store for history
+                if formatted_msg:
+                    # Only store for later rendering - don't write to Streamlit from thread
                     current_logs.append(formatted_msg)
             
             set_verbose(True, callback=logger_callback)
@@ -466,24 +466,44 @@ if user_text:
                 full += str(chunk)
                 placeholder.markdown(full)
             
-            # Close the status container processing state
-            if status_container:
+            
+            # Render accumulated logs to status container (thread-safe)
+            if status_container and current_logs:
+                for log_msg in current_logs:
+                    status_container.markdown(log_msg)
                 status_container.update(label="Internal Processing Complete", state="complete", expanded=False)
 
             # Final render with structure (swapping raw stream for pretty UI)
             placeholder.empty()
 
-            # 4) Topic suggestions
-            try:
-                topic_model = load_topic_model()
-                topics_chunks = topics_from_retrieved_chunks(topic_model, retriever, user_text, top_n=3)
-                topics_query = top_topics_for_query(topic_model, user_text, top_n=3)
-                topics = merge_intent_and_grounded_topics(topics_query, topics_chunks, top_n=3)
-                questions = suggest_questions_from_topics(topics, n=5)
+            # 4) Topic suggestions (skip if out-of-scope)
+            # Check if response is an out-of-scope rejection
+            # Check for key phrases from both language versions
+            is_out_of_scope = (
+                "no está relacionada con" in full.lower() or
+                "not related to ERCOT" in full.lower() or
+                "solo puedo responder preguntas sobre proyectos de energía" in full.lower() or
+                "I can only answer questions about energy projects" in full.lower()
+            )
+            
+            # Debug: log detection status
+            if is_out_of_scope:
+                st.caption("🔍 Out-of-scope question detected - skipping topic suggestions")
+            
+            if not is_out_of_scope:
+                try:
+                    # Detect language for multilingual topic suggestions
+                    query_lang = detect_language(user_text)
+                    
+                    topic_model = load_topic_model()
+                    topics_chunks = topics_from_retrieved_chunks(topic_model, retriever, user_text, top_n=3)
+                    topics_query = top_topics_for_query(topic_model, user_text, top_n=3)
+                    topics = merge_intent_and_grounded_topics(topics_query, topics_chunks, top_n=3)
+                    questions = suggest_questions_from_topics(topics, n=5, lang=query_lang)
 
-            except Exception as e:
-                # Optional: show a tiny debug message
-                st.caption(f"Topic suggestions unavailable: {e}")
+                except Exception as e:
+                    # Optional: show a tiny debug message
+                    st.caption(f"Topic suggestions unavailable: {e}")
 
             formatted_full = keep_only_last_sources(full)
 

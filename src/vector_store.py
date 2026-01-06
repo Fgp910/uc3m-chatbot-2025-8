@@ -17,25 +17,25 @@ EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 COLLECTION_NAME = os.getenv("COLLECTION_NAME", "sgia_chunks")
 
 
-def get_vectorstore(chromadb_path: str = None):
+def get_vectorstore(chromadb_path: str = None) -> Chroma:
+    """Load the ChromaDB vector store."""
     path = chromadb_path or CHROMADB_PATH
 
     if not Path(path).exists():
         raise FileNotFoundError(f"ChromaDB not found at: {path}")
 
     embedding_function = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
-    print(f"Loading ChromaDB at: {path}...")
     vectorstore = Chroma(
         persist_directory=path,
         embedding_function=embedding_function,
         collection_name=COLLECTION_NAME
     )
 
-    print(f"Loaded {vectorstore._collection.count()} chunks")
     return vectorstore
 
 
 def get_retriever(k_docs: int = 10, filters: dict = None, chromadb_path: str = None):
+    """Get a standard LangChain retriever."""
     vectorstore = get_vectorstore(chromadb_path)
     search_kwargs = {"k": k_docs}
 

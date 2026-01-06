@@ -27,6 +27,9 @@ except ImportError:
 
 
 class RAGEvaluator:
+    # Constants for LLM judge context truncation
+    MAX_CONTEXT_LENGTH = 2000  # Maximum characters for faithfulness evaluation
+    
     def __init__(self, k_docs=10):
         self.k_docs = k_docs
         self.retriever = get_retriever(k_docs=k_docs)
@@ -39,15 +42,19 @@ class RAGEvaluator:
         ]
 
     def _judge_faithfulness(self, context: str, response: str) -> float:
-        prompt = f"""Context: {context[:2000]}
+        prompt = f"""Context: {context[:self.MAX_CONTEXT_LENGTH]}
 Response: {response}
 
 Does the response use ONLY information from the context? 
 Answer with just 1 (yes) or 0 (no/hallucination)."""
         
-        result = call_llm_api_full(prompt).strip()
-        match = re.search(r'[01]', result)
-        return float(match.group()) if match else 0.0
+        try:
+            result = call_llm_api_full(prompt).strip()
+            match = re.search(r'[01]', result)
+            return float(match.group()) if match else 0.0
+        except (ConnectionError, TimeoutError, ValueError) as e:
+            print(f"  WARNING: Faithfulness judge failed: {type(e).__name__}: {e}")
+            return 0.0
 
     def _judge_relevance(self, question: str, response: str) -> float:
         prompt = f"""Question: {question}
@@ -56,9 +63,13 @@ Response: {response}
 Does the response answer the question?
 Answer with just 1 (yes) or 0 (no)."""
         
-        result = call_llm_api_full(prompt).strip()
-        match = re.search(r'[01]', result)
-        return float(match.group()) if match else 0.0
+        try:
+            result = call_llm_api_full(prompt).strip()
+            match = re.search(r'[01]', result)
+            return float(match.group()) if match else 0.0
+        except (ConnectionError, TimeoutError, ValueError) as e:
+            print(f"  WARNING: Relevance judge failed: {type(e).__name__}: {e}")
+            return 0.0
 
     def _check_citation(self, response: str) -> float:
         return 1.0 if "[source" in response.lower() or "[fuente" in response.lower() else 0.0
@@ -72,7 +83,8 @@ Answer with just 1 (yes) or 0 (no)."""
         try:
             P, R, F1 = bert_score_fn([prediction], [reference], lang="en", verbose=False)
             return F1.mean().item()
-        except:
+        except (RuntimeError, ValueError, ImportError) as e:
+            print(f"  WARNING: BERTScore calculation failed: {type(e).__name__}: {e}")
             return 0.0
 
     def evaluate(self, dataset: List[Dict[str, Any]]):
@@ -100,8 +112,8 @@ Answer with just 1 (yes) or 0 (no)."""
             try:
                 config = {"configurable": {"session_id": f"eval_{i}"}}
                 response = self.rag_chain.invoke({"question": question}, config=config)
-            except Exception as e:
-                print(f"  ERROR: {e}")
+            except (ConnectionError, TimeoutError, ValueError, RuntimeError) as e:
+                print(f"  ERROR: RAG chain invocation failed: {type(e).__name__}: {e}")
                 response = "ERROR"
             
             latency = time.time() - start
@@ -109,12 +121,21 @@ Answer with just 1 (yes) or 0 (no)."""
             
             # Get context for faithfulness check
             docs = self.retriever.invoke(question)
-            context = "\n".join([d.page_content for d in docs])
+            if not docs:
+                print(f"  WARNING: No documents retrieved for question {i+1}")
+                context = ""
+            else:
+                context = "\n".join([d.page_content for d in docs])
             
             if is_negative:
                 # Should refuse to answer
                 refused = self._check_refusal(response)
                 metrics["negative_handling"].append(1.0 if refused else 0.0)
+                # Add None for other metrics to keep list lengths consistent
+                metrics["faithfulness"].append(None)
+                metrics["relevance"].append(None)
+                metrics["citation"].append(None)
+                metrics["bert_score"].append(None)
                 print(f"  Negative test - Refused: {refused}")
             else:
                 # Positive test
@@ -127,14 +148,17 @@ Answer with just 1 (yes) or 0 (no)."""
                 metrics["relevance"].append(rel)
                 metrics["citation"].append(cit)
                 metrics["bert_score"].append(bert)
+                metrics["negative_handling"].append(None)  # Keep consistency
                 
                 print(f"  Faith: {faith} | Rel: {rel} | Cit: {cit} | BERT: {bert:.2f}")
 
         self._report(metrics)
 
-    def _report(self, metrics):
+    def _report(self, metrics: Dict[str, List[float]]) -> None:
         def avg(lst): 
-            return statistics.mean(lst) if lst else 0.0
+            # Filter out None values for metrics not applicable to all test types
+            filtered = [x for x in lst if x is not None]
+            return statistics.mean(filtered) if filtered else 0.0
         
         print("\n" + "="*60)
         print(" EVALUATION REPORT")
