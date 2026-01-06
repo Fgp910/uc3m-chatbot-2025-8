@@ -1,6 +1,6 @@
 # Chain builders for RAG pipeline
 
-from typing import Dict, Generator
+from typing import Dict, Generator, Optional, Union
 from langchain_core.runnables import (
     RunnablePassthrough,
     RunnableLambda,
@@ -29,7 +29,12 @@ OOS_QUESTION_MSG = {
 
 # --- Chain Builders ---
 
-def get_flash_chain(retriever, k_total: int = None, with_history: bool = True, with_summary: bool = False):
+def get_flash_chain(
+    retriever,
+    k_total: Optional[int] = None,
+    with_history: bool = True,
+    with_summary: bool = False
+) -> Union[RunnableWithMessageHistory, RunnableLambda]:
     """Build Flash mode RAG chain (fast, 2-4 LLM calls with decomposition).
     
     Args:
@@ -37,6 +42,9 @@ def get_flash_chain(retriever, k_total: int = None, with_history: bool = True, w
         k_total: Max total documents to retrieve (passed implicitly to/from retriever)
         with_history: Whether to include chat history management
         with_summary: Whether to append document summary
+    
+    Returns:
+        RAG chain runnable (with or without history wrapper)
     """
     get_logger().info("Building FLASH mode chain")
     
