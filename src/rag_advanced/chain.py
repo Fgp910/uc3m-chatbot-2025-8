@@ -49,11 +49,7 @@ def get_flash_chain(retriever, k_total: int = None, with_history: bool = True, w
         
         # Domain pre-filter: skip retrieval for out-of-scope questions
         if not is_domain_relevant(question, history):
-            msg = ("Esta pregunta no está relacionada con acuerdos de interconexión ERCOT. "
-                   "Solo puedo responder preguntas sobre proyectos de energía, redes eléctricas y ERCOT."
-                   if lang == 'spanish'
-                   else "This question is not related to ERCOT interconnection agreements. "
-                   "I can only answer questions about energy projects, power grids, and ERCOT.")
+            msg = OOS_QUESTION_MSG[lang]
             yield msg
             return
         

@@ -315,12 +315,12 @@ Response:"""
         sources_split = generated_answer.split("Sources:\n", 1)
         main_response = sources_split[0].strip()
         sources_content = sources_split[1].strip() if len(sources_split) > 1 else None
+        sources = {"keys": [], "coords": []}
 
         if not sources_content:
-            return main_response, []
+            return main_response, sources
 
         lines = sources_content.strip().split('\n')
-        sources = {"keys": [], "coords": []}
         for line in lines:
             clean_line = line.strip()
             if not clean_line:
@@ -423,6 +423,8 @@ Response:"""
 
             reject_hit = self.check_out_of_scope(main_response, case["is_in_scope"])
             metrics["reject_accuracy"].append(reject_hit)
+            print(f"  Language hit: {metrics['lang_accuracy'][-1]}, "
+                  f"Reject/accept hit: {metrics['reject_accuracy'][-1]}")
 
             # Skip further tests if question is actually out-of-scope
             if not case["is_in_scope"]:
@@ -652,21 +654,21 @@ if __name__ == "__main__":
             "relevant_doc_keys": []
         },
         {
-            "question": "Are ERCOT agreements fun to make?",
+            "question": "Is the weather nice in Texas?",
             "lang": "english",
             "is_in_scope": False,
             "reference_answer": "",
             "relevant_doc_keys": []
         },
         {
-            "question": "¿Es divertido hacer acuerdos de ERCOT?",
+            "question": "¿Hace buen tiempo en Texas?",
             "lang": "spanish",
             "is_in_scope": False,
             "reference_answer": "",
             "relevant_doc_keys": []
         },
         {
-            "question": "What are all the relevant emails in the FRIENDSWOOD ENERGY GENCO project agreement?",
+            "question": "What are all the relevant emails in the FRIENDSWOOD ENERGY GENCO project interconnection agreement?",
             "lang": "english",
             "is_in_scope": True,
             "reference_answer": "For Friendswood Energy Genco LLC: Suriyun Sukduang (ssukduang@quantumug.com). For operational and administrative notices: NRG Cedar Bayou 5 LLC: realtimedesk@nrg.com. For billing purposes: CenterPoint Energy Houston Electric, LLC: AP.invoices@centerpointenergy.com, Friendswood Energy Genco LLC: mborski@quantumug.com",
