@@ -23,7 +23,8 @@ from src.rag_advanced import (
     config  # Centralized configuration
 )
 from src.vector_store import get_smart_retriever
-from src.evaluator import run_evaluation
+from rag_tests.test_utils import run_evaluation
+from rag_tests.test import SAMPLE_DATASET
 
 # Use centralized config for document retrieval
 K_DOCS = config.K_DOCS_DEFAULT
@@ -248,7 +249,7 @@ def show_menu():
         if choice == "1":
             run_demo()
         elif choice == "2":
-            run_evaluation(k_docs=K_DOCS)
+            run_evaluation(SAMPLE_DATASET, mode=RAGMode.THINKING)
         elif choice == "3":
             run_chat()
         elif choice == "4":
@@ -280,7 +281,7 @@ Examples:
     if args.demo:
         run_demo()
     elif args.evaluate:
-        run_evaluation(k_docs=K_DOCS)
+        run_evaluation(SAMPLE_DATASET, mode=RAGMode.THINKING)
     elif args.chat:
         run_chat()
     else:
