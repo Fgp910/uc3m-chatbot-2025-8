@@ -197,7 +197,7 @@ def nearest_topics_by_embedding(topic_model: BERTopic, query: str, top_n: int = 
 def suggest_questions_from_topics(topics: List[Dict[str, Any]], n: int = 5, lang: str = 'english') -> List[str]:
     """
     Template-based suggestions in the specified language.
-    
+
     Args:
         topics: List of topic dictionaries with keywords
         n: Number of questions to return
@@ -218,20 +218,20 @@ def suggest_questions_from_topics(topics: List[Dict[str, Any]], n: int = 5, lang
             "¿Dónde se discute '{kw1}' en los documentos?",
         ]
     }
-    
+
     question_templates = templates.get(lang, templates['english'])
     suggestions = []
-    
+
     for t in topics:
         kws = [w for (w, _) in t.get("keywords", [])[:5]]
         if not kws:
             continue
         kw1 = kws[0]
         kw2 = kws[1] if len(kws) > 1 else kws[0]
-        
+
         for template in question_templates:
             suggestions.append(template.format(kw1=kw1, kw2=kw2))
-    
+
     # unique + cut
     seen = set()
     out = []

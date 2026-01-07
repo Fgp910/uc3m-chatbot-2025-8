@@ -35,7 +35,7 @@ PARENT_MAPPING = {
     'PATTERN': ['pattern energy', 'pattern '],
     'EDP': ['edp renewables', 'edp '],
     'TERRA-GEN': ['terra-gen', 'terra gen', 'terragen'],
-    
+
     # Tier 2: Major Players
     'CANADIAN SOLAR': ['canadian solar', 'recurrent'],
     'LIGHTSOURCE BP': ['lightsource', 'bp '],
@@ -53,7 +53,7 @@ PARENT_MAPPING = {
     'ADAPTURE': ['adapture'],
     'IP ENERGY': ['ip quantum', 'ip energy'],
     'ENBRIDGE': ['enbridge'],
-    
+
     # Tier 3: Battery/Storage Specialists
     'PLUS POWER': ['plus power'],
     'KEY CAPTURE': ['key capture'],
@@ -61,7 +61,7 @@ PARENT_MAPPING = {
     'JUPITER': ['jupiter power', 'jupiter '],
     'ABLE GRID': ['able grid'],
     'GIGA TEXAS': ['giga texas'],
-    
+
     # Tier 4: Utilities & IPPs
     'VISTRA': ['vistra'],
     'NRG': ['nrg '],
@@ -70,14 +70,14 @@ PARENT_MAPPING = {
     'DOMINION': ['dominion'],
     'LCRA': ['lcra'],
     'CPS': ['cps energy'],
-    
+
     # Tier 5: PE/Infrastructure
     'CPV': ['cpv', 'competitive power'],
     'BLACKROCK': ['blackrock'],
     'BROOKFIELD': ['brookfield'],
     'KKR': ['kkr'],
     'CARLYLE': ['carlyle'],
-    
+
     # Tier 6: Regional/Other Known
     'GRANSOLAR': ['gransolar'],
     'MISAE': ['misae', 'excel advantage'],
@@ -111,7 +111,7 @@ COUNTY_ZONES = {
     'CROCKETT': 'WEST', 'SUTTON': 'WEST', 'SCHLEICHER': 'WEST',
     'IRION': 'WEST', 'REAGAN': 'WEST', 'GLASSCOCK': 'WEST',
     'STERLING': 'WEST', 'COKE': 'WEST', 'TOM GREEN': 'WEST',
-    
+
     # PANHANDLE (High wind, transmission constrained)
     'POTTER': 'PANHANDLE', 'RANDALL': 'PANHANDLE', 'CARSON': 'PANHANDLE',
     'DEAF SMITH': 'PANHANDLE', 'OLDHAM': 'PANHANDLE', 'HARTLEY': 'PANHANDLE',
@@ -124,7 +124,7 @@ COUNTY_ZONES = {
     'PARMER': 'PANHANDLE', 'BAILEY': 'PANHANDLE', 'LAMB': 'PANHANDLE',
     'HALE': 'PANHANDLE', 'FLOYD': 'PANHANDLE', 'MOTLEY': 'PANHANDLE',
     'COTTLE': 'PANHANDLE', 'KING': 'PANHANDLE', 'DICKENS': 'PANHANDLE',
-    
+
     # COAST (Houston load center, premium pricing)
     'HARRIS': 'COAST', 'BRAZORIA': 'COAST', 'GALVESTON': 'COAST',
     'FORT BEND': 'COAST', 'WHARTON': 'COAST', 'MATAGORDA': 'COAST',
@@ -133,7 +133,7 @@ COUNTY_ZONES = {
     'NUECES': 'COAST', 'KLEBERG': 'COAST', 'KENEDY': 'COAST',
     'WILLACY': 'COAST', 'CAMERON': 'COAST', 'HIDALGO': 'COAST',
     'STARR': 'COAST',
-    
+
     # NORTH (Dallas load center)
     'DALLAS': 'NORTH', 'TARRANT': 'NORTH', 'COLLIN': 'NORTH',
     'DENTON': 'NORTH', 'ELLIS': 'NORTH', 'JOHNSON': 'NORTH',
@@ -145,7 +145,7 @@ COUNTY_ZONES = {
     'PALO PINTO': 'NORTH', 'STEPHENS': 'NORTH', 'YOUNG': 'NORTH',
     'CLAY': 'NORTH', 'MONTAGUE': 'NORTH', 'WICHITA': 'NORTH',
     'WILBARGER': 'NORTH', 'HARDEMAN': 'NORTH', 'FOARD': 'NORTH',
-    
+
     # SOUTH (San Antonio / Valley)
     'BEXAR': 'SOUTH', 'COMAL': 'SOUTH', 'GUADALUPE': 'SOUTH',
     'WILSON': 'SOUTH', 'ATASCOSA': 'SOUTH', 'MEDINA': 'SOUTH',
@@ -157,7 +157,7 @@ COUNTY_ZONES = {
     'WEBB': 'SOUTH', 'DIMMIT': 'SOUTH', 'MAVERICK': 'SOUTH',
     'KINNEY': 'SOUTH', 'EDWARDS': 'SOUTH', 'REAL': 'SOUTH',
     'BANDERA': 'SOUTH', 'KERR': 'SOUTH', 'KENDALL': 'SOUTH',
-    
+
     # CENTRAL (Austin/Waco corridor)
     'MCLENNAN': 'CENTRAL', 'BELL': 'CENTRAL', 'CORYELL': 'CENTRAL',
     'LAMPASAS': 'CENTRAL', 'BURNET': 'CENTRAL', 'LLANO': 'CENTRAL',
@@ -191,11 +191,11 @@ COUNTY_ZONES = {
 @dataclass
 class ProjectMetadata:
     """Complete project metadata from enriched CSV + intelligence layer."""
-    
+
     # Identifiers
     inr: str = ""
     item_number: str = ""
-    
+
     # From CSV (pre-loaded)
     project_name: str = ""
     developer_spv: str = ""        # Raw SPV name from CSV
@@ -206,22 +206,22 @@ class ProjectMetadata:
     county: str = ""
     zone: str = ""                 # INTELLIGENCE: Mapped zone
     cdr_zone: str = ""             # From CSV (CDR Reporting Zone)
-    
+
     # Dates
     projected_cod: str = ""
     ia_signed: str = ""
     fis_approved: str = ""
     file_date: str = ""
-    
+
     # Document info
     doc_type: str = ""
     has_final_sgia: bool = False
     description: str = ""
-    
+
     # Status
     maturity_score: int = 0
     is_amended: bool = False       # Detected from doc_type/description
-    
+
     # To be extracted from PDF
     tsp_name: str = ""
     security_total_usd: float = 0.0
@@ -229,7 +229,7 @@ class ProjectMetadata:
     security_construction_usd: float = 0.0
     security_per_kw: float = 0.0
     commercial_operation_date: str = ""
-    
+
     def to_dict(self) -> Dict:
         """Export as dictionary."""
         return {
@@ -269,86 +269,86 @@ class ProjectMetadata:
 class MetadataRegistry:
     """
     Load and manage project metadata from enriched CSV.
-    
+
     Applies intelligence layer:
     - Parent company normalization (100% capture for top developers)
     - Zone mapping (spatial intelligence)
     """
-    
+
     def __init__(self):
         self.registry: Dict[str, ProjectMetadata] = {}
         self.by_item: Dict[str, ProjectMetadata] = {}
-    
+
     def _infer_parent_company(self, spv_name: str) -> str:
         """
         Apply hardcoded parent mapping to SPV name.
-        
+
         Args:
             spv_name: Raw interconnecting entity name (with trailing spaces stripped)
-        
+
         Returns:
             Normalized parent company name or 'UNKNOWN'
         """
         if not spv_name:
             return 'UNKNOWN'
-        
+
         spv_lower = spv_name.lower()
-        
+
         for parent, keywords in PARENT_MAPPING.items():
             if any(kw in spv_lower for kw in keywords):
                 return parent
-        
+
         return 'UNKNOWN'
-    
+
     def _get_zone(self, county: str, cdr_zone: str = "") -> str:
         """
         Map county to ERCOT zone.
-        
+
         Uses CDR Reporting Zone from CSV if available, otherwise maps from county.
-        
+
         Args:
             county: County name
             cdr_zone: CDR Reporting Zone from CSV (if available)
-        
+
         Returns:
             Zone name (WEST, PANHANDLE, COAST, NORTH, SOUTH, CENTRAL, OTHER)
         """
         # If CDR zone is provided and valid, use it
         if cdr_zone and cdr_zone.upper() in ['WEST', 'PANHANDLE', 'COAST', 'NORTH', 'SOUTH', 'CENTRAL']:
             return cdr_zone.upper()
-        
+
         # Otherwise map from county
         if not county:
             return 'OTHER'
-        
+
         county_upper = county.upper().strip()
         return COUNTY_ZONES.get(county_upper, 'OTHER')
-    
+
     def _detect_amendment(self, doc_type: str, description: str) -> bool:
         """Detect if document is an amendment from doc_type or description."""
         text = f"{doc_type} {description}".lower()
         return 'amended' in text or 'restated' in text or 'amendment' in text
-    
+
     def load_enriched_csv(self, csv_path: Path) -> int:
         """
         Load the Gold Master enriched CSV and apply intelligence layer.
-        
+
         Args:
             csv_path: Path to enriched_145_projects_SURGICAL.csv
-        
+
         Returns:
             Number of projects loaded
         """
         csv_path = Path(csv_path)
-        
+
         if not csv_path.exists():
             raise FileNotFoundError(f"Enriched CSV not found: {csv_path}")
-        
+
         count = 0
-        
+
         with open(csv_path, 'r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
-            
+
             for row in reader:
                 # Get raw values (strip trailing spaces!)
                 inr = row.get('INR', '').strip()
@@ -358,24 +358,24 @@ class MetadataRegistry:
                 cdr_zone = row.get('CDR Reporting Zone', '').strip()
                 doc_type = row.get('Doc_Type', '').strip()
                 description = row.get('Description', '').strip()
-                
+
                 # Apply intelligence layer
                 parent_company = self._infer_parent_company(spv_raw)
                 zone = self._get_zone(county, cdr_zone)
                 is_amended = self._detect_amendment(doc_type, description)
-                
+
                 # Parse capacity
                 try:
                     capacity = float(row.get('Capacity (MW)', 0) or 0)
                 except (ValueError, TypeError):
                     capacity = 0.0
-                
+
                 # Parse maturity score
                 try:
                     maturity = int(row.get('Maturity_Score', 0) or 0)
                 except (ValueError, TypeError):
                     maturity = 0
-                
+
                 # Create metadata object
                 meta = ProjectMetadata(
                     inr=inr,
@@ -399,42 +399,42 @@ class MetadataRegistry:
                     maturity_score=maturity,
                     is_amended=is_amended,
                 )
-                
+
                 # Store by INR and Item
                 if inr:
                     self.registry[inr] = meta
                 if item:
                     self.by_item[item] = meta
-                
+
                 count += 1
-        
+
         print(f"✓ Loaded {count} projects from {csv_path.name}")
-        
+
         # Print intelligence summary
         parent_counts = {}
         zone_counts = {}
         for meta in self.registry.values():
             parent_counts[meta.parent_company] = parent_counts.get(meta.parent_company, 0) + 1
             zone_counts[meta.zone] = zone_counts.get(meta.zone, 0) + 1
-        
+
         known_parents = sum(c for p, c in parent_counts.items() if p != 'UNKNOWN')
         print(f"  Parent Company: {known_parents}/{count} identified ({100*known_parents/count:.0f}%)")
         print(f"  Zones: {dict(sorted(zone_counts.items(), key=lambda x: -x[1]))}")
-        
+
         return count
-    
+
     def get_by_inr(self, inr: str) -> Optional[ProjectMetadata]:
         """Get metadata by INR number."""
         return self.registry.get(inr)
-    
+
     def get_by_item(self, item: str) -> Optional[ProjectMetadata]:
         """Get metadata by Item number."""
         return self.by_item.get(item)
-    
+
     def get_by_filename(self, filename: str) -> Optional[ProjectMetadata]:
         """
         Get metadata by PDF filename.
-        
+
         Filename format: 35077_{Item}_{FileID}.pdf
         """
         match = re.search(r'35077_(\d+)_\d+', filename)
@@ -442,10 +442,10 @@ class MetadataRegistry:
             item = match.group(1)
             return self.by_item.get(item)
         return None
-    
+
     def get_all(self) -> list:
         """Get all project metadata."""
         return list(self.registry.values())
-    
+
     def __len__(self):
         return len(self.registry)

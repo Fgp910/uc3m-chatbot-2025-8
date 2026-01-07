@@ -31,7 +31,7 @@ SGIAs require developers to post financial security in TWO phases:
 - **security_design_usd**: Posted during engineering/study phase
   - Typical range: $500,000 - $5,000,000
   - Look for: "Design Phase", "Study Phase", "engineering security"
-  
+
 - **security_construction_usd**: Posted before construction begins
   - Typical range: $2,000,000 - $50,000,000
   - Look for: "Construction Phase", "construction security"
@@ -68,9 +68,9 @@ Look for: "c/o [COMPANY NAME]" in the Interconnection Customer's address
 ### EXAMPLE 1: Standard Security Format
 ```
 INPUT TEXT:
-"The Interconnection Customer shall provide the following security totaling Eight Million 
-Dollars ($8,000,000), comprised of (i) Design Phase security in the amount of Two Million 
-Five Hundred Thousand Dollars ($2,500,000), and (ii) Construction Phase security in the 
+"The Interconnection Customer shall provide the following security totaling Eight Million
+Dollars ($8,000,000), comprised of (i) Design Phase security in the amount of Two Million
+Five Hundred Thousand Dollars ($2,500,000), and (ii) Construction Phase security in the
 amount of Five Million Five Hundred Thousand Dollars ($5,500,000)."
 
 OUTPUT:
@@ -102,9 +102,9 @@ OUTPUT:
 ### EXAMPLE 3: IR Submitter Pattern (Parent Company)
 ```
 INPUT TEXT (from recitals):
-"...Transmission Service Provider shall interconnect Generator's Plant with Transmission 
-Service Provider's System consistent with the results of the Full Interconnection Study 
-that was prepared in response to generation interconnection request #24INR0485 to ERCOT 
+"...Transmission Service Provider shall interconnect Generator's Plant with Transmission
+Service Provider's System consistent with the results of the Full Interconnection Study
+that was prepared in response to generation interconnection request #24INR0485 to ERCOT
 from Samsung C&T America, Inc."
 
 OUTPUT:
@@ -385,20 +385,20 @@ def get_optimal_prompt(
 ) -> str:
     """
     Select the optimal prompt based on document characteristics.
-    
+
     Args:
         text_quality: 0-1 score of OCR/text quality
         is_scanned: True if document appears to be scanned
         has_tables: True if document contains table structures
         document_length: Character count
-    
+
     Returns:
         Appropriate prompt string
     """
     # For scanned/low-quality docs, use simpler prompt with more examples
     if is_scanned or text_quality < 0.5:
         return EXTRACTION_PROMPT_V2  # Vision-friendly
-    
+
     # For high-quality text docs, use full prompt
     return EXTRACTION_PROMPT_V2
 
@@ -411,13 +411,13 @@ SECTION_PROMPTS = {
     'exhibit_e': """Focus on EXHIBIT E - SECURITY ARRANGEMENT DETAILS.
 Extract:
 - Design Phase security amount
-- Construction Phase security amount  
+- Construction Phase security amount
 - Total security (only if explicit)
 - Letter of Credit details if present
 
 {base_prompt}
 """,
-    
+
     'recitals': """Focus on the RECITALS section (first 2-3 pages after cover letter).
 Extract:
 - IR Submitter (from "interconnection request #XXINRXXXX to ERCOT from [COMPANY]")
@@ -426,7 +426,7 @@ Extract:
 
 {base_prompt}
 """,
-    
+
     'exhibit_c': """Focus on EXHIBIT C - INTERCONNECTION DETAILS.
 Extract:
 - Equipment specifications (inverters/turbines)

@@ -619,34 +619,34 @@ def validate_dataset(dataset):
     """Validate that all required fields are present and correct."""
     required_fields = ["question", "lang", "is_in_scope", "reference_answer", "relevant_doc_keys"]
     valid_langs = ["english", "spanish"]
-    
+
     errors = []
-    
+
     for i, case in enumerate(dataset):
         # Check required fields
         for field in required_fields:
             if field not in case:
                 errors.append(f"Case {i}: Missing field '{field}'")
-        
+
         # Check lang field
         if case.get("lang") not in valid_langs:
             errors.append(f"Case {i}: Invalid lang '{case.get('lang')}'")
-        
+
         # Check is_in_scope type
         if not isinstance(case.get("is_in_scope"), bool):
             errors.append(f"Case {i}: is_in_scope must be boolean")
-        
+
         # Check relevant_doc_keys type
         if not isinstance(case.get("relevant_doc_keys"), list):
             errors.append(f"Case {i}: relevant_doc_keys must be a list")
-        
+
         # For in-scope questions, check for non-empty reference and doc_keys
         if case.get("is_in_scope"):
             if not case.get("reference_answer"):
                 errors.append(f"Case {i}: In-scope question missing reference_answer")
             if not case.get("relevant_doc_keys"):
                 errors.append(f"Case {i}: In-scope question missing relevant_doc_keys")
-    
+
     if errors:
         print("VALIDATION ERRORS:")
         for error in errors:
@@ -668,11 +668,11 @@ def print_coverage_stats(dataset):
         "fuel_types": set(),
         "zones": set(),
     }
-    
+
     for case in dataset:
         is_in_scope = case["is_in_scope"]
         lang = case["lang"]
-        
+
         if not is_in_scope:
             if lang == "english":
                 stats["out_of_scope_en"] += 1
@@ -683,7 +683,7 @@ def print_coverage_stats(dataset):
                 stats["in_scope_en"] += 1
             else:
                 stats["in_scope_es"] += 1
-    
+
     print("\n" + "="*60)
     print("DATASET COVERAGE STATISTICS")
     print("="*60)

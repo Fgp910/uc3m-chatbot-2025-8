@@ -201,7 +201,7 @@ RESPONSE_FORMAT_TEMPLATES = {
 
 Example format:
 **YES** - [Brief justification with source citations]""",
-        
+
         "es": """FORMATO PARA PREGUNTA SÍ/NO:
 1. Comienza con un claro **SÍ** o **NO** (negrita)
 2. Sigue con 1-2 frases de justificación citando fuentes
@@ -210,7 +210,7 @@ Example format:
 Formato ejemplo:
 **SÍ** - [Breve justificación con citas de fuentes]"""
     },
-    
+
     "COMPARATIVE": {
         "en": """RESPONSE FORMAT FOR COMPARATIVE QUESTION:
 1. Start with a summary statement of the comparison result
@@ -219,7 +219,7 @@ Formato ejemplo:
    |--------|----------|----------|
 3. Highlight key differences and cite sources for each data point
 4. Conclude with the main takeaway""",
-        
+
         "es": """FORMATO PARA PREGUNTA COMPARATIVA:
 1. Comienza con un resumen del resultado de la comparación
 2. Presenta una comparación estructurada (tabla o viñetas):
@@ -228,7 +228,7 @@ Formato ejemplo:
 3. Destaca diferencias clave y cita fuentes para cada dato
 4. Concluye con la conclusión principal"""
     },
-    
+
     "AGGREGATION": {
         "en": """RESPONSE FORMAT FOR AGGREGATION QUESTION:
 1. State the aggregate value prominently (bold the number)
@@ -236,7 +236,7 @@ Formato ejemplo:
 3. Include the sample size (N=X projects/documents)
 4. Note any outliers or important caveats
 5. Cite all sources used in the calculation""",
-        
+
         "es": """FORMATO PARA PREGUNTA DE AGREGACIÓN:
 1. Indica el valor agregado prominentemente (número en negrita)
 2. Muestra el desglose/componentes que llevaron a este valor
@@ -244,21 +244,21 @@ Formato ejemplo:
 4. Nota cualquier valor atípico o advertencia importante
 5. Cita todas las fuentes usadas en el cálculo"""
     },
-    
+
     "FACTUAL": {
         "en": """RESPONSE FORMAT FOR FACTUAL QUESTION:
 1. State the specific fact/data point directly and prominently
 2. Provide brief context (project, date, section of document)
 3. Cite the exact source
 4. If multiple values exist, list all with their sources""",
-        
+
         "es": """FORMATO PARA PREGUNTA FACTUAL:
 1. Indica el dato específico directamente y prominentemente
 2. Proporciona contexto breve (proyecto, fecha, sección del documento)
 3. Cita la fuente exacta
 4. Si existen múltiples valores, lista todos con sus fuentes"""
     },
-    
+
     "LISTING": {
         "en": """RESPONSE FORMAT FOR LISTING QUESTION:
 1. State the total count first (e.g., "There are X projects:")
@@ -266,7 +266,7 @@ Formato ejemplo:
 3. For each item, include key identifiers (name, INR, type)
 4. Group by category if applicable (by developer, technology, zone)
 5. Cite sources for each item""",
-        
+
         "es": """FORMATO PARA PREGUNTA DE LISTADO:
 1. Indica el conteo total primero (ej: "Hay X proyectos:")
 2. Presenta elementos como lista numerada o con viñetas
@@ -274,7 +274,7 @@ Formato ejemplo:
 4. Agrupa por categoría si aplica (por desarrollador, tecnología, zona)
 5. Cita fuentes para cada elemento"""
     },
-    
+
     "TEMPORAL": {
         "en": """RESPONSE FORMAT FOR TEMPORAL QUESTION:
 1. State the overall trend or change first
@@ -284,7 +284,7 @@ Formato ejemplo:
    - 2023-2024: [description]
 3. Quantify changes where possible (%, absolute values)
 4. Cite sources for each time period mentioned""",
-        
+
         "es": """FORMATO PARA PREGUNTA TEMPORAL:
 1. Indica la tendencia o cambio general primero
 2. Presenta una línea temporal o desglose cronológico:
@@ -294,28 +294,28 @@ Formato ejemplo:
 3. Cuantifica cambios donde sea posible (%, valores absolutos)
 4. Cita fuentes para cada período mencionado"""
     },
-    
+
     "DEFINITIONAL": {
         "en": """RESPONSE FORMAT FOR DEFINITIONAL QUESTION:
 1. Provide a clear, concise definition first
 2. Explain relevance to ERCOT/SGIAs context
 3. Give an example from the corpus if available
 4. Cite sources if definition comes from documents""",
-        
+
         "es": """FORMATO PARA PREGUNTA DEFINITIONAL:
 1. Proporciona una definición clara y concisa primero
 2. Explica relevancia en contexto ERCOT/SGIAs
 3. Da un ejemplo del corpus si está disponible
 4. Cita fuentes si la definición viene de documentos"""
     },
-    
+
     "GENERAL": {
         "en": """RESPONSE FORMAT FOR GENERAL QUESTION:
 1. Address the question directly
 2. Structure information logically with headers if needed
 3. Include relevant data with citations
 4. Be comprehensive but concise""",
-        
+
         "es": """FORMATO PARA PREGUNTA GENERAL:
 1. Aborda la pregunta directamente
 2. Estructura la información lógicamente con encabezados si es necesario

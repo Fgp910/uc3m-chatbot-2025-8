@@ -27,8 +27,8 @@ SGIAs often list TWO separate security amounts. Extract BOTH:
 1. **security_design_usd**: Design/Study/Procurement phase security
    - Typically $1-5 Million
    - Look for: "Design Phase", "Study Phase", "pre-construction"
-   
-2. **security_construction_usd**: Construction phase security  
+
+2. **security_construction_usd**: Construction phase security
    - Typically $5-50 Million
    - Look for: "Construction Phase", "Construction Security"
 
@@ -243,7 +243,7 @@ SEARCH FOR:
 1. In RECITALS: "interconnection request from [COMPANY]" or "IR submitted by [COMPANY]"
 2. In NOTICES: Email domains (not the TSP's domain)
    - @nexteraenergy.com = NextEra
-   - @rwe.com = RWE  
+   - @rwe.com = RWE
    - @invenergy.com = Invenergy
    - @edpr.com = EDP
    - @samsung.com = Samsung

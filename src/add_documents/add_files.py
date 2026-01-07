@@ -111,7 +111,7 @@ def chunk_documents(path: str, original_name: str) -> List[Document]:
     chunker = SGIAChunker()
 
     pdf_path = Path(path)
-    result = extractor.extract_document(pdf_path) 
+    result = extractor.extract_document(pdf_path)
     text = result.full_text
 
     chunks = chunker.chunk_document(text=text, filename=original_name)

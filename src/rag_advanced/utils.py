@@ -29,16 +29,16 @@ class QuestionType(Enum):
 
 class RAGConfig:
     """Centralized configuration for RAG pipeline parameters."""
-    
+
     # --- Document Retrieval ---
     K_DOCS_DEFAULT = 15          # Default docs to retrieve from vector store
-    
+
     # --- Flash Mode ---
     FLASH_MAX_SOURCES = 10        # Max documents to include in Flash response
-    
+
     # --- Thinking Mode ---
     THINKING_MAX_QUERIES = 6            # Max query variants for expansion (1 original + generated)
-    
+
     # --- Parallelization ---
     RETRIEVAL_WORKERS = 4        # Parallel workers for multi-query retrieval
 
@@ -76,25 +76,25 @@ CONSECUTIVE_NEWLINES_PATTERN = re.compile(r'\n{3,}')
 
 class VerboseLogger:
     """Handles verbose output for debugging/progress visibility."""
-    
+
     def __init__(self, enabled: bool = True, callback: Callable[[str], None] = None):
         self.enabled = enabled
         self.callback = callback or print
-    
+
     def log(self, step: str, message: str, emoji: str = ""):
         if self.enabled:
             prefix = f"{emoji} " if emoji else ""
             self.callback(f"{prefix}[{step}] {message}")
-    
+
     def step(self, message: str):
         self.log("STEP", message, "🔄")
-    
+
     def success(self, message: str):
         self.log("OK", message, "✓")
-    
+
     def warning(self, message: str):
         self.log("WARN", message, "⚠")
-    
+
     def info(self, message: str):
         self.log("INFO", message, "ℹ")
 
@@ -131,7 +131,7 @@ def detect_language(text: str) -> str:
 
 def format_sources(docs, max_sources: int = None) -> Dict[str, Any]:
     """Returns dict with formatted context string and source metadata list.
-    
+
     Args:
         docs: List of documents
         max_sources: Optional limit on number of sources (default: no limit)
@@ -182,10 +182,10 @@ def clean_response(text: str) -> str:
     """Remove meta-commentary and duplicate source sections from LLM responses."""
     # Remove trailing source section using precompiled pattern
     text = SOURCE_SECTION_PATTERN.sub('', text)
-    
+
     lines = text.split('\n')
     cleaned_lines = []
-    
+
     for line in lines:
         is_meta = False
         line_stripped = line.strip()
@@ -195,7 +195,7 @@ def clean_response(text: str) -> str:
                 break
         if not is_meta:
             cleaned_lines.append(line)
-    
+
     # Remove consecutive empty lines using precompiled pattern
     result = '\n'.join(cleaned_lines)
     result = CONSECUTIVE_NEWLINES_PATTERN.sub('\n\n', result)

@@ -64,11 +64,11 @@ def show_document(project, inr, section):
 
     with st.spinner("Retrieving document..."):
         content = get_document_content(project, inr, section)
-    
+
     # Clean up content slightly for display
     # Replace the "---" separator logic from vector_store with a visual separator
     clean_content = content.replace("\n\n---\n\n", "<hr class='doc-separator'>")
-    
+
     html = f"""
     <div class="doc-container">
         <div class="doc-header">
@@ -147,7 +147,7 @@ with st.sidebar:
         st.image(str(logo_path), use_column_width=True)
     else:
         st.warning("Logo not found")
-        
+
     st.header("OPTIONS")
 
     # Mode selection
@@ -155,23 +155,23 @@ with st.sidebar:
         st.session_state.messages = []
         st.session_state.session_id = str(uuid.uuid4())
         # We don't need manual rerun, Streamlit reruns after callback
-    
+
     mode_options = [m.value for m in RAGMode]
     # Use key to persist state and callback to handle changes
     selected_mode = st.radio(
-        "Select Mode", 
-        mode_options, 
-        index=0, 
+        "Select Mode",
+        mode_options,
+        index=0,
         format_func=lambda x: x.capitalize(),
         key="rag_mode_selection",
         on_change=reset_conversation
     )
-    
+
     # Removed manual last_mode check to prevent accidental resets
-    
+
     with_summary = st.toggle("Auto-summarization", value=False)
     show_verbose = st.checkbox("Show internal processing", value=True)
-    
+
     k_docs = st.slider("Number of retrieved documents", 1, 50, K_DOCS)
 
     if st.button("New chat"):
@@ -305,24 +305,24 @@ def render_message_structurally(content: str, msg_index: int, topics: list = Non
     2. Sources (put in expander as buttons)
     3. Summary (put in distinct block)
     """
-    
+
     # 1. Extract Summary if present
     summary_split = re.split(r'\n\n--- (?:Summary|Resumen) ---\n', content, maxsplit=1)
-    
+
     main_and_sources = summary_split[0]
     summary_content = summary_split[1] if len(summary_split) > 1 else None
-    
+
     # 2. Extract Sources from the first part
     sources_split = main_and_sources.split("Sources:\n", 1)
-    
+
     main_response = sources_split[0].strip()
     sources_content = sources_split[1].strip() if len(sources_split) > 1 else None
-    
+
     # --- RENDER ---
-    
+
     # 1. Main Response
     st.markdown(main_response)
-    
+
     # 2. Sources (Expander with Buttons)
     if sources_content:
         with st.expander("📚 Sources / Fuentes"):
@@ -331,10 +331,10 @@ def render_message_structurally(content: str, msg_index: int, topics: list = Non
             for idx, line in enumerate(lines):
                 clean_line = line.strip()
                 if not clean_line: continue
-                
+
                 # Create unique key for this button
                 btn_key = f"src_{msg_index}_{idx}"
-                
+
                 if st.button(clean_line, key=btn_key):
                     # Parse metadata: [1] Project (INR) - Section
                     # Regex: find optional [N], then Project, (INR), -, Section
@@ -347,7 +347,7 @@ def render_message_structurally(content: str, msg_index: int, topics: list = Non
                     else:
                         st.error(f"Could not parse source metadata: {clean_line}")
 
-    if topics or questions:       
+    if topics or questions:
         with st.expander("🧠 Suggested topics & follow-up questions", expanded=False):
             if topics:
                 st.markdown("**🧩 Suggested topics**")
@@ -375,7 +375,7 @@ for i, m in enumerate(st.session_state.messages):
             with st.status("Internal Processing", expanded=False, state="complete") as status_container:
                 for log_msg in m["logs"]:
                      status_container.markdown(log_msg)
-        
+
         if m["role"] == "assistant":
             render_message_structurally(m["content"], i, m.get("topics"), m.get("followups", []))
         else:
@@ -389,7 +389,7 @@ def parse_log_msg(msg: str) -> str:
     """Helper to style log messages for storage/rendering."""
     if "=====" in msg:
         return None
-    
+
     if "[STEP]" in msg:
         clean_msg = msg.split("[STEP]", 1)[1].strip()
         return f"**🔄 {clean_msg}**"
@@ -412,9 +412,9 @@ def parse_log_msg(msg: str) -> str:
         return f":green[✓ {clean_msg}]"
     elif "[WARN]" in msg:
         clean_msg = msg.split("[WARN]", 1)[1].strip()
-        return f"⚠️ {clean_msg}" # Using text emoji to be safe in markdown strings or st.warning content? 
+        return f"⚠️ {clean_msg}" # Using text emoji to be safe in markdown strings or st.warning content?
         # Actually in stored logs we might just store the pre-formatted markdown string.
-        # But we can't call st.warning() in a loop easily without creating widgets? 
+        # But we can't call st.warning() in a loop easily without creating widgets?
         # Actually st.status supports markdown. formatting as markdown is better.
     elif "[INFO]" in msg:
         clean_msg = msg.split("[INFO]", 1)[1].strip()
@@ -428,7 +428,7 @@ def parse_log_msg(msg: str) -> str:
 if user_text:
     topics = []
     questions = []
-    
+
     # 1) Render user message
     st.session_state.messages.append({"role": "user", "content": user_text})
     with st.chat_message("user"):
@@ -436,21 +436,21 @@ if user_text:
 
     # 2) Generate response (streaming)
     with st.chat_message("assistant"):
-        
+
         # Verbose logging area
         status_container = None
         current_logs = [] # Store formatted logs to save later
-        
+
         if show_verbose:
             status_container = st.status("Internal Processing", expanded=True)
-            
+
             def logger_callback(msg):
                 """Thread-safe logger callback - only stores messages, doesn't write to Streamlit"""
                 formatted_msg = parse_log_msg(msg)
                 if formatted_msg:
                     # Only store for later rendering - don't write to Streamlit from thread
                     current_logs.append(formatted_msg)
-            
+
             set_verbose(True, callback=logger_callback)
         else:
             set_verbose(False)
@@ -465,8 +465,8 @@ if user_text:
             ):
                 full += str(chunk)
                 placeholder.markdown(full)
-            
-            
+
+
             # Render accumulated logs to status container (thread-safe)
             if status_container and current_logs:
                 for log_msg in current_logs:
@@ -485,16 +485,16 @@ if user_text:
                 "solo puedo responder preguntas sobre proyectos de energía" in full.lower() or
                 "I can only answer questions about energy projects" in full.lower()
             )
-            
+
             # Debug: log detection status
             if is_out_of_scope:
                 st.caption("🔍 Out-of-scope question detected - skipping topic suggestions")
-            
+
             if not is_out_of_scope:
                 try:
                     # Detect language for multilingual topic suggestions
                     query_lang = detect_language(user_text)
-                    
+
                     topic_model = load_topic_model()
                     topics_chunks = topics_from_retrieved_chunks(topic_model, retriever, user_text, top_n=3)
                     topics_query = top_topics_for_query(topic_model, user_text, top_n=3)
@@ -518,12 +518,12 @@ if user_text:
             placeholder.markdown(full)
             if status_container:
                 status_container.update(label="Internal Processing Failed", state="error")
-        
+
         # Reset verbose to avoid side effects
         set_verbose(False)
 
     # 5) Save assistant response in UI history
-    formatted_full = keep_only_last_sources(full)    
+    formatted_full = keep_only_last_sources(full)
 
     st.session_state.messages.append({
         "role": "assistant",
