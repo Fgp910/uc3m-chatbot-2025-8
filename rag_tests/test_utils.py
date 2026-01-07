@@ -299,7 +299,7 @@ Response:"""
             P, R, F1 = bert_score_fn(
                 [gen_clean],
                 [ref_clean],
-                lang="en",
+                model_type="distilbert-base-uncased",
                 verbose=False
             )
             return F1.mean().item()
@@ -392,7 +392,7 @@ Response:"""
             reference_answer = case.get("reference_answer", "")
             relevant_doc_keys = case.get("relevant_doc_keys", [])
 
-            print(f"[{i}/{len(dataset)}] {question[:60]}...")
+            print(f"[{i}/{len(dataset)}] {question[:120]}...")
 
             # Get generated answer
             start_time = time.time()
@@ -538,7 +538,7 @@ Response:"""
 # Sample test dataset
 # Note: You should replace this with your actual test dataset
 # with questions, reference answers, and relevant document keys
-SAMPLE_DATASET = [
+DEFAULT_DATASET = [
     {
         "question": "What are the security deposit requirements for interconnection?",
         "lang": "english",
@@ -567,7 +567,7 @@ def run_evaluation(
     Run RAG quality evaluation.
 
     Args:
-        dataset: Test dataset (uses SAMPLE_DATASET if None)
+        dataset: Test dataset (uses DEFAULT_DATASET if None)
             Each entry should have:
             - "question": str
             - "lang": str ("english" or "spanish")
@@ -599,7 +599,7 @@ def run_evaluation(
         results = run_evaluation(dataset, mode=RAGMode.FLASH)
     """
     if dataset is None:
-        dataset = SAMPLE_DATASET
+        dataset = DEFAULT_DATASET
         print("Warning: Using sample dataset. Replace with your actual test data.")
 
     evaluator = RAGQualityEvaluator(
@@ -610,6 +610,91 @@ def run_evaluation(
 
     results = evaluator.evaluate(dataset, k_values=k_values)
     return results
+
+# =============================================================================
+# DATASET VALIDATION HELPERS
+# =============================================================================
+
+def validate_dataset(dataset):
+    """Validate that all required fields are present and correct."""
+    required_fields = ["question", "lang", "is_in_scope", "reference_answer", "relevant_doc_keys"]
+    valid_langs = ["english", "spanish"]
+    
+    errors = []
+    
+    for i, case in enumerate(dataset):
+        # Check required fields
+        for field in required_fields:
+            if field not in case:
+                errors.append(f"Case {i}: Missing field '{field}'")
+        
+        # Check lang field
+        if case.get("lang") not in valid_langs:
+            errors.append(f"Case {i}: Invalid lang '{case.get('lang')}'")
+        
+        # Check is_in_scope type
+        if not isinstance(case.get("is_in_scope"), bool):
+            errors.append(f"Case {i}: is_in_scope must be boolean")
+        
+        # Check relevant_doc_keys type
+        if not isinstance(case.get("relevant_doc_keys"), list):
+            errors.append(f"Case {i}: relevant_doc_keys must be a list")
+        
+        # For in-scope questions, check for non-empty reference and doc_keys
+        if case.get("is_in_scope"):
+            if not case.get("reference_answer"):
+                errors.append(f"Case {i}: In-scope question missing reference_answer")
+            if not case.get("relevant_doc_keys"):
+                errors.append(f"Case {i}: In-scope question missing relevant_doc_keys")
+    
+    if errors:
+        print("VALIDATION ERRORS:")
+        for error in errors:
+            print(f" {error}")
+        return False
+    else:
+        print(" Dataset validation passed!")
+        return True
+
+
+def print_coverage_stats(dataset):
+    """Print dataset coverage statistics."""
+    stats = {
+        "total": len(dataset),
+        "out_of_scope_en": 0,
+        "out_of_scope_es": 0,
+        "in_scope_en": 0,
+        "in_scope_es": 0,
+        "fuel_types": set(),
+        "zones": set(),
+    }
+    
+    for case in dataset:
+        is_in_scope = case["is_in_scope"]
+        lang = case["lang"]
+        
+        if not is_in_scope:
+            if lang == "english":
+                stats["out_of_scope_en"] += 1
+            else:
+                stats["out_of_scope_es"] += 1
+        else:
+            if lang == "english":
+                stats["in_scope_en"] += 1
+            else:
+                stats["in_scope_es"] += 1
+    
+    print("\n" + "="*60)
+    print("DATASET COVERAGE STATISTICS")
+    print("="*60)
+    print(f"Total test cases: {stats['total']}")
+    print(f"\nOut-of-scope questions:")
+    print(f"  English: {stats['out_of_scope_en']}")
+    print(f"  Spanish: {stats['out_of_scope_es']}")
+    print(f"\nIn-scope questions:")
+    print(f"  English: {stats['in_scope_en']}")
+    print(f"  Spanish: {stats['in_scope_es']}")
+    print("="*60)
 
 
 if __name__ == "__main__":
@@ -638,57 +723,7 @@ if __name__ == "__main__":
     print("    ]")
     print("  }\n")
 
-    dataset = [
-        {
-            "question": "What is the meaning of life?",
-            "lang": "english",
-            "is_in_scope": False,
-            "reference_answer": "",
-            "relevant_doc_keys": []
-        },
-        {
-            "question": "¿Cuál es el sentido de la vida?",
-            "lang": "spanish",
-            "is_in_scope": False,
-            "reference_answer": "",
-            "relevant_doc_keys": []
-        },
-        {
-            "question": "Is the weather nice in Texas?",
-            "lang": "english",
-            "is_in_scope": False,
-            "reference_answer": "",
-            "relevant_doc_keys": []
-        },
-        {
-            "question": "¿Hace buen tiempo en Texas?",
-            "lang": "spanish",
-            "is_in_scope": False,
-            "reference_answer": "",
-            "relevant_doc_keys": []
-        },
-        {
-            "question": "What are all the relevant emails in the FRIENDSWOOD ENERGY GENCO project interconnection agreement?",
-            "lang": "english",
-            "is_in_scope": True,
-            "reference_answer": "For Friendswood Energy Genco LLC: Suriyun Sukduang (ssukduang@quantumug.com). For operational and administrative notices: NRG Cedar Bayou 5 LLC: realtimedesk@nrg.com. For billing purposes: CenterPoint Energy Houston Electric, LLC: AP.invoices@centerpointenergy.com, Friendswood Energy Genco LLC: mborski@quantumug.com",
-            "relevant_doc_keys": [
-                RAGQualityEvaluator.doc_to_key('FRIENDSWOOD ENERGY GENCO', '24INR0456', 'schedule_of')
-            ]
-        },
-        {
-            "question": "Are there any requirements that differ between solar and gas projects?",
-            "lang": "english",
-            "is_in_scope": True,
-            "reference_answer": 'For solar projects, there is no mention of a required security amount in the provided documents. However, for gas projects, an exhibit ("E") outlines the requirements for a cash deposit as the Security.',
-            "relevant_doc_keys": [
-                RAGQualityEvaluator.doc_to_key('Houston IV BESS', '24INR0584', 'exhibit_a'),
-                RAGQualityEvaluator.doc_to_key('Parliament Solar', '23INR0044', 'article_16')
-            ]
-        },
-    ]
-
-    results = run_evaluation(dataset, mode=mode)
+    results = run_evaluation(mode=mode)
 
     print("\nEvaluation complete!")
 
