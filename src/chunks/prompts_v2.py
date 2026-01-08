@@ -149,11 +149,11 @@ OUTPUT:
 
 ## COMMON ERRORS TO AVOID
 
-❌ DON'T extract amounts from "estimated costs" sections - those are TSP's construction costs, NOT security
-❌ DON'T confuse "Letter of Credit amount" with total security - LC is just one form of security
-❌ DON'T extract the TSP's internal contact as parent company
-❌ DON'T leave security_total_usd as 0 if an explicit total IS stated
-❌ DON'T extract security amounts from amendments if they're referencing the original agreement
+DON'T extract amounts from "estimated costs" sections - those are TSP's construction costs, NOT security
+DON'T confuse "Letter of Credit amount" with total security - LC is just one form of security
+DON'T extract the TSP's internal contact as parent company
+DON'T leave security_total_usd as 0 if an explicit total IS stated
+DON'T extract security amounts from amendments if they're referencing the original agreement
 
 ---
 
@@ -264,10 +264,10 @@ PARENT_COMPANY_PROMPT = """Extract the REAL parent company (not the SPV) from th
 
 ## IMPORTANT DISTINCTIONS
 
-✅ IR Submitter = Corporate sponsor who filed with ERCOT (BEST source)
-✅ c/o Company = Usually the parent's service company
-❌ SPV Name = Just the project shell company (e.g., "Blue Sky Solar, LLC")
-❌ TSP Contacts = Utility employees, not the developer
+IR Submitter = Corporate sponsor who filed with ERCOT (BEST source)
+c/o Company = Usually the parent's service company
+SPV Name = Just the project shell company (e.g., "Blue Sky Solar, LLC")
+TSP Contacts = Utility employees, not the developer
 
 ## OUTPUT
 
@@ -437,3 +437,4 @@ Extract:
 {base_prompt}
 """,
 }
+
