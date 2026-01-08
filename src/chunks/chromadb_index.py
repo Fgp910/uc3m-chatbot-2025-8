@@ -149,7 +149,7 @@ class ChromaDBIndexer:
             indexed += len(batch)
             logger.info(f"  Indexed {indexed}/{len(chunks)} chunks")
         
-        logger.info(f"\n✅ Indexing complete: {indexed} chunks in '{collection_name}'")
+        logger.info(f"\n Indexing complete: {indexed} chunks in '{collection_name}'")
         return indexed
     
     def _clean_metadata(self, metadata: Dict) -> Dict:
