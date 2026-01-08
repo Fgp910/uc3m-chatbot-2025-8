@@ -81,22 +81,6 @@ python main.py
 
 Ver [SETUP.md](SETUP.md) para la lista completa de variables configurables.
 
-## 📊 Análisis de Tópicos
-
-### Entrenar el modelo BERTopic
-
-```bash
-python train_topics.py
-```
-
-Esto creará `output/bertopic_model.pkl` entrenado con los chunks de ChromaDB.
-
-### Características del sistema de tópicos
-
-- **Traducción automática**: Queries en español se traducen al inglés para matching
-- **Dual-source topics**: Combina tópicos de la query (intent) con tópicos de documentos recuperados (grounded)
-- **Preguntas multilingües**: Templates en español e inglés
-- **Limpieza de keywords**: Filtra números, tokens cortos y stop words
 
 ## 🧪 Evaluación
 
@@ -127,5 +111,57 @@ Los componentes modulares están en `src/rag_advanced/components.py`:
 - `validate_response()`: Validación de respuestas
 - `expand_query()`: Expansión de consultas
 - `extract_query_metadata()`: Extracción de filtros
+
+---
+
+## ➕ Funcionalidades adicionales (opcionales)
+
+### 📤 Add documents (indexación incremental)
+
+Permite **subir nuevos documentos (PDF/TXT/MD) desde la interfaz Streamlit** y **añadirlos incrementalmente** al índice vectorial (ChromaDB), sin reconstruir toda la base de datos.
+
+**Qué hace:**
+- Extrae texto del documento subido.
+- Genera chunks con el chunker del proyecto (o el pipeline de ingest configurado).
+- Inserta los chunks en ChromaDB con metadata para trazabilidad.
+- Refresca el retriever para que los documentos nuevos se usen inmediatamente.
+
+**Uso (Streamlit):**
+1. Ir a la barra lateral → **Add documents**
+2. Seleccionar uno o varios ficheros
+3. Pulsar **Index documents**
+4. Los documentos quedan disponibles en *Sources / Fuentes* al hacer preguntas
+5. Existe la posibilidad de eliminar los documentos en caso de necesidad
+
+---
+
+### 🧠 Topic modeling (BERTopic) para sugerencias
+
+Añade un sistema de **sugerencia de tópicos y preguntas de seguimiento** a partir de:
+- **Query topics**: tópicos inferidos desde la query del usuario
+- **Chunk topics**: tópicos inferidos desde los chunks recuperados por el RAG (top-k)
+
+El objetivo es **guiar al usuario** hacia preguntas relacionadas y mejorar la exploración del corpus.
+
+#### Características del sistema de tópicos
+
+- **Traducción automática**: Queries en español se traducen al inglés para matching
+- **Dual-source topics**: Combina tópicos de la query (intent) con tópicos de documentos recuperados (grounded)
+- **Preguntas multilingües**: Templates en español e inglés
+- **Limpieza de keywords**: Filtra números, tokens cortos y stop words
+
+#### Entrenar el modelo BERTopic
+
+```bash
+python train_topics.py
+```
+
+Esto creará `output/bertopic_model.pkl` entrenado con los chunks de ChromaDB.
+
+Para garantizar el correcto funcionamiento del sistema RAG y evitar tiempos elevados de entrenamiento o dependencias de hardware, se proporciona un modelo BERTopic ya entrenado. Puede descargarse desde el siguiente repositorio de Google Drive:
+
+🔗 https://drive.google.com/drive/u/0/folders/1MBH5Ea-6Pq-HkRDi1XMWAdTQC-xD8oqV
+
+Una vez descargado, el archivo bertopic_model.pkl debe colocarse manualmente en la carpeta `output/`
 
 
