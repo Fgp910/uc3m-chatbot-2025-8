@@ -19,7 +19,7 @@ Dataset Statistics:
 """
 import sys
 
-from sample_dataset_complete import SAMPLE_DATASET
+from .sample_dataset_complete import SAMPLE_DATASET
 
 from rag_tests.test_utils import RAGQualityEvaluator, run_evaluation, validate_dataset, print_coverage_stats
 from src.rag_advanced.utils import RAGMode
