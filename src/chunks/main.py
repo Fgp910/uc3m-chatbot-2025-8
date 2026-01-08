@@ -46,7 +46,7 @@ def cmd_extract(args):
     # Get API key
     api_key = args.api_key or os.environ.get('ANTHROPIC_API_KEY')
     if not api_key:
-        print("❌ Error: Anthropic API key required")
+        print("Error: Anthropic API key required")
         print("  Use --api_key YOUR_KEY or set ANTHROPIC_API_KEY environment variable")
         return
 
@@ -56,7 +56,7 @@ def cmd_extract(args):
     print("=" * 60)
 
     if args.force_vision:
-        print("🔍 FORCE VISION MODE ENABLED")
+        print("FORCE VISION MODE ENABLED")
         print("   - Using Sonnet vision for ALL documents")
         print("   - Extracting expanded fields (POI, voltage, dates)")
         print("   - Cost: ~$0.30-0.50 per document")
@@ -136,14 +136,14 @@ def cmd_analyze(args):
     print("-" * 40)
     for field, count in fields.items():
         pct = 100 * count / n if n > 0 else 0
-        status = "✅" if pct > 80 else "⚠️" if pct > 50 else "❌"
+        status = "Success" if pct > 80 else "Warning" if pct > 50 else "Fail"
         print(f"  {status} {field}: {count}/{n} ({pct:.0f}%)")
 
     print("\nV5.3 Expanded Field Coverage:")
     print("-" * 40)
     for field, count in expanded_fields.items():
         pct = 100 * count / n if n > 0 else 0
-        status = "✅" if pct > 80 else "⚠️" if pct > 50 else "❌"
+        status = "Success" if pct > 80 else "Warning" if pct > 50 else "Fail"
         print(f"  {status} {field}: {count}/{n} ({pct:.0f}%)")
 
     # Zone distribution
@@ -311,7 +311,7 @@ def cmd_chunk(args):
     # Get API key for Vision OCR
     api_key = args.api_key or os.environ.get('ANTHROPIC_API_KEY')
     if not api_key:
-        print("❌ Error: Anthropic API key required for Vision OCR")
+        print("Error: Anthropic API key required for Vision OCR")
         print("  Use --api_key YOUR_KEY or set ANTHROPIC_API_KEY environment variable")
         return
 
@@ -329,7 +329,7 @@ def cmd_chunk(args):
     checkpoint_dir = output_dir / "checkpoints"
 
     # Phase 1: Extract text from PDFs with validation
-    print("\n📄 PHASE 1: Extracting text from PDFs (with validation)...")
+    print("\n PHASE 1: Extracting text from PDFs (with validation)...")
     print("-" * 70)
 
     extractor = ProductionTextExtractor(
@@ -346,7 +346,7 @@ def cmd_chunk(args):
     )
 
     # Phase 2: Chunk with metadata
-    print("\n📦 PHASE 2: Creating chunks with metadata...")
+    print("\n PHASE 2: Creating chunks with metadata...")
     print("-" * 70)
 
     chunker = SGIAChunker(results_path)
@@ -357,7 +357,7 @@ def cmd_chunk(args):
     )
 
     # Phase 3: Validate output
-    print("\n🔍 PHASE 3: Validating output quality...")
+    print("\n PHASE 3: Validating output quality...")
     print("-" * 70)
 
     extraction_metadata = load_extraction_metadata(results_path)
@@ -381,7 +381,7 @@ def cmd_chunk(args):
 
     print(f"\n  Metadata coverage:")
     for field, pct in validation['coverage'].items():
-        status = "✅" if pct >= 90 else "⚠️" if pct >= 70 else "❌"
+        status = "Success" if pct >= 90 else "Warning" if pct >= 70 else "Fail"
         print(f"    {status} {field}: {pct:.0f}%")
 
     print(f"\n  Top sections:")
@@ -389,23 +389,23 @@ def cmd_chunk(args):
         print(f"    {section}: {count}")
 
     if validation['issues']:
-        print(f"\n⚠️  ISSUES DETECTED:")
+        print(f"\n  ISSUES DETECTED:")
         for issue in validation['issues']:
             print(f"    - {issue}")
     else:
-        print(f"\n✅ VALIDATION PASSED")
+        print(f"\n VALIDATION PASSED")
 
-    print(f"\n📁 Output files:")
+    print(f"\n Output files:")
     print(f"   Text files: {text_dir}/")
     print(f"   Chunks: {chunks_path}")
     print(f"   Extraction report: {output_dir}/extraction_report.json")
     print(f"   Chunk validation: {validation_path}")
 
     if report.documents_needing_review:
-        print(f"\n⚠️  {len(report.documents_needing_review)} documents need review:")
+        print(f"\n  {len(report.documents_needing_review)} documents need review:")
         print(f"   Check {output_dir}/extraction_summary.json")
 
-    print(f"\n🚀 Next: Run 'python -m src.main index' to create ChromaDB")
+    print(f"\n Next: Run 'python -m src.main index' to create ChromaDB")
 
 
 def cmd_index(args):
@@ -447,13 +447,13 @@ def cmd_index(args):
 
     # Test query if requested
     if args.test_query:
-        print(f"\n🔍 Test query: '{args.test_query}'")
+        print(f"\n Test query: '{args.test_query}'")
         results = indexer.query(args.test_query, n_results=3)
         for r in results:
             print(f"\n  [{r['chunk_id']}] (dist: {r['distance']:.3f})")
             print(f"  {r['text'][:200]}...")
 
-    print(f"\n✅ Ready for RAG! Use ChromaDBIndexer to query.")
+    print(f"\n Ready for RAG! Use ChromaDBIndexer to query.")
 
 
 def main():
