@@ -8,8 +8,7 @@ This script enriches raw extraction results with additional intelligence:
 1. MERGE STRATEGY
    - Combines V5.2 (text-based) and V5.3 (vision-based) extraction results
    - Takes best security value from either run per document
-   - Rationale: Vision extraction cost $40 more but achieved WORSE results (77 vs 79),
-     however some individual documents extracted better with vision
+   
 
 2. EMAIL DOMAIN → PARENT COMPANY MAPPING
    - SGIAs contain contact emails in cover letters
