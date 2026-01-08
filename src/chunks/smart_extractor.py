@@ -638,7 +638,7 @@ Convert "Three Million Five Hundred Thousand Dollars" = 3500000
 
         # Handle extraction failure
         if not extracted:
-            logger.warning(f"  ✗ Extraction failed")
+            logger.warning(f"  Extraction failed")
             result.needs_review = True
             result.review_reasons.append("LLM extraction failed")
             self.stats['failed'] += 1
@@ -747,14 +747,14 @@ Convert "Three Million Five Hundred Thousand Dollars" = 3500000
             # This is a valid zero - not a failure
             result.needs_review = False
             result.review_reasons = ["Colocation - no security required (valid)"]
-            logger.info("  ℹ️  Colocation detected - no security required")
+            logger.info("  Colocation detected - no security required")
 
         # =====================================================================
         # V5.2 FIX 2: MIXED PDF RETRY
         # =====================================================================
         # If vision mode failed to find security, retry with more pages
         if result.security_total_usd == 0 and result.used_vision and not is_colocation:
-            logger.info("  🔄 Vision missed security - retrying with more pages...")
+            logger.info("  Vision missed security - retrying with more pages...")
             retry_extracted = self._retry_vision_with_more_pages(pdf_path)
             if retry_extracted:
                 if retry_extracted.get('security_design_usd'):
@@ -785,7 +785,7 @@ Convert "Three Million Five Hundred Thousand Dollars" = 3500000
                 for issue in validation.issues:
                     if issue not in result.review_reasons:
                         result.review_reasons.append(issue)
-                logger.warning(f"  ⚠️  Validation issues: {validation.issues}")
+                logger.warning(f"  Validation issues: {validation.issues}")
         except Exception as e:
             logger.debug(f"Validation error (non-fatal): {e}")
 
@@ -829,7 +829,7 @@ Convert "Three Million Five Hundred Thousand Dollars" = 3500000
         if checkpoint.has_checkpoint():
             state = checkpoint.load()
             skip_files = set(state.processed_files)
-            logger.info(f"📍 RESUMING: {len(skip_files)} already processed, skipping...")
+            logger.info(f"RESUMING: {len(skip_files)} already processed, skipping...")
         else:
             checkpoint.state.total_documents = len(pdfs)
             checkpoint.state.start_time = datetime.now().isoformat()
@@ -840,7 +840,7 @@ Convert "Three Million Five Hundred Thousand Dollars" = 3500000
         for i, pdf_path in enumerate(pdfs, 1):
             # Skip already processed files
             if pdf_path.name in skip_files:
-                logger.info(f"[{i}/{len(pdfs)}] ⏭️  Skipping (already processed): {pdf_path.name}")
+                logger.info(f"[{i}/{len(pdfs)}] Skipping (already processed): {pdf_path.name}")
                 continue
 
             logger.info(f"\n[{i}/{len(pdfs)}] {pdf_path.name}")
@@ -918,3 +918,4 @@ Convert "Three Million Five Hundred Thousand Dollars" = 3500000
     def get_stats(self) -> Dict:
         """Get extraction statistics."""
         return self.stats.copy()
+
