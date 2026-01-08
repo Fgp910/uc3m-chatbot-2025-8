@@ -23,25 +23,40 @@ CHROMADB_PATH=./output/chromadb
 
 ## 3. Add ChromaDB data
 
-Copy the `chromadb` folder from Person B's pipeline to `./output/chromadb`
+Copy the `chromadb` zip from the following Drive link:
+
+🔗 https://drive.google.com/drive/u/0/folders/1MBH5Ea-6Pq-HkRDi1XMWAdTQC-xD8oqV
+
+to `./output/chromadb`
 
 Your folder structure should look like:
 
 ```
 uc3m-chatbot-2025-8/
 ├── output/
-│   └── chromadb/
-│       ├── chroma.sqlite3
-│       └── dbb87095-.../
+│   │── chromadb/
+│   │   ├── chroma.sqlite3
+│   │   └── dbb87095-.../
+│   │── bertopic_model.pkl
 ├── src/
 ├── main.py
+├── frontend.py
+|
 └── .env
 ```
 
-## 4. Run
+## 4. Add Bertopic model
+
+Copy the `bertopic_model.pkl` pkl from the following Drive link:
+
+🔗 https://drive.google.com/drive/u/0/folders/1MBH5Ea-6Pq-HkRDi1XMWAdTQC-xD8oqV
+
+to `./output/bertopic_model.pkl`
+
+## 4. Run Frontend
 
 ```bash
-python main.py
+streamlit run frontend.py
 ```
 
 ## 5. Run evaluation
