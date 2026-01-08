@@ -55,7 +55,7 @@ RETRY_DELAYS = [2, 5, 10]          # Exponential backoff (seconds)
 REQUEST_DELAY = 1.0                # Rate limiting between calls
 
 # Cost tracking
-COST_PER_VISION_CALL = 0.003       # ~$0.003 per image
+COST_PER_VISION_CALL = 0.003       
 
 
 # =============================================================================
@@ -160,7 +160,7 @@ class ExtractionReport:
         print(f"  Vision cost: ${self.total_vision_cost:.2f}")
 
         if self.documents_needing_review:
-            print(f"\n⚠️  DOCUMENTS NEEDING REVIEW ({len(self.documents_needing_review)}):")
+            print(f"\nDOCUMENTS NEEDING REVIEW ({len(self.documents_needing_review)}):")
             for doc in self.documents_needing_review[:10]:
                 print(f"    - {doc}")
             if len(self.documents_needing_review) > 10:
@@ -421,7 +421,7 @@ class ExtractionCheckpoint:
                 with open(self.checkpoint_path, 'r') as f:
                     data = json.load(f)
                     self.completed = data.get('completed', {})
-                logger.info(f"📂 Loaded checkpoint: {len(self.completed)} documents completed")
+                logger.info(f"Loaded checkpoint: {len(self.completed)} documents completed")
             except Exception as e:
                 logger.warning(f"Could not load checkpoint: {e}")
 
@@ -538,7 +538,7 @@ class ProductionTextExtractor:
             doc = fitz.open(pdf_path)
             num_pages = len(doc)
         except Exception as e:
-            logger.error(f"  ❌ Cannot open PDF: {e}")
+            logger.error(f"Cannot open PDF: {e}")
             return DocumentResult(
                 filename=filename,
                 filepath=str(pdf_path),
@@ -714,7 +714,7 @@ class ProductionTextExtractor:
             self.checkpoint.mark_completed(result)
 
         # Log summary
-        status = "✅" if success else "⚠️"
+        status = "Success" if success else "Fail"
         logger.info(
             f"    {status} {num_pages} pages | "
             f"text:{text_pages} vision:{vision_pages} failed:{failed_pages} | "
@@ -751,7 +751,7 @@ class ProductionTextExtractor:
         if force and self.checkpoint:
             self.checkpoint.completed = {}
             self.checkpoint.save()
-            logger.info("🔄 Cleared checkpoint (--force)")
+            logger.info("Cleared checkpoint (--force)")
 
         # Find PDFs
         pdfs = sorted(pdf_dir.glob("*.pdf"))
@@ -783,7 +783,7 @@ class ProductionTextExtractor:
                         f.write(result.full_text)
 
             except Exception as e:
-                logger.error(f"  ❌ FAILED: {e}")
+                logger.error(f"FAILED: {e}")
                 results.append(DocumentResult(
                     filename=pdf_path.name,
                     filepath=str(pdf_path),
@@ -823,7 +823,7 @@ class ProductionTextExtractor:
 
         report.print_summary()
 
-        logger.info(f"\n📁 Output files:")
+        logger.info(f"\nOutput files:")
         logger.info(f"  Text files: {text_dir}/")
         logger.info(f"  Report: {report_path}")
         logger.info(f"  Summary: {results_path}")
